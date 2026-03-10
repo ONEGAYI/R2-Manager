@@ -14,6 +14,8 @@ import { useConfig } from '@/hooks/useConfig'
 import { useFiles } from '@/hooks/useFiles'
 import { useConfigStore } from '@/stores/configStore'
 import { api } from '@/services/api'
+import { fileService } from '@/services/fileService'
+import type { UploadFile } from '@/types/file'
 import '@/styles/globals.css'
 
 function App() {
@@ -21,6 +23,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [forceShowConfig, setForceShowConfig] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [uploads, setUploads] = useState<UploadFile[]>([])
 
   const { buckets, selectedBucket, isLoading, selectBucket, refreshBuckets } =
     useBuckets()
@@ -236,6 +239,80 @@ function App() {
     }
   }, [selectedBucket, selectedKeys, selectedCount])
 
+  // 处理文件上传
+  const handleUpload = useCallback(async (files: File[]) => {
+    console.log('handleUpload called with files:', files.length, 'bucket:', selectedBucket)
+    if (!selectedBucket) {
+      console.error('No bucket selected')
+      return
+    }
+
+    // 创建上传任务
+    const newUploads: UploadFile[] = files.map((file) => ({
+      id: `${Date.now()}-${file.name}`,
+      file,
+      progress: 0,
+      status: 'pending' as const,
+    }))
+
+    console.log('Creating upload tasks:', newUploads)
+    setUploads((prev) => [...prev, ...newUploads])
+
+    // 逐个上传文件
+    for (const upload of newUploads) {
+      try {
+        console.log('Starting upload:', upload.file.name)
+
+        // 更新状态为上传中
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === upload.id ? { ...u, status: 'uploading', progress: 0 } : u
+          )
+        )
+
+        // 计算上传路径（包含当前前缀）
+        const key = currentPrefix + upload.file.name
+        console.log('Upload key:', key, 'to bucket:', selectedBucket)
+
+        // 执行上传，带进度回调
+        await fileService.uploadFile(selectedBucket, key, upload.file, (progress) => {
+          setUploads((prev) =>
+            prev.map((u) =>
+              u.id === upload.id ? { ...u, progress } : u
+            )
+          )
+        })
+        console.log('Upload completed:', upload.file.name)
+
+        // 更新状态为完成
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === upload.id ? { ...u, status: 'completed', progress: 100 } : u
+          )
+        )
+      } catch (error) {
+        console.error('Upload failed:', error)
+        // 更新状态为错误
+        setUploads((prev) =>
+          prev.map((u) =>
+            u.id === upload.id
+              ? { ...u, status: 'error', error: (error as Error).message }
+              : u
+          )
+        )
+      }
+    }
+
+    // 所有上传完成后刷新文件列表
+    console.log('Refreshing file list')
+    refreshFiles(selectedBucket, currentPrefix)
+  }, [selectedBucket, currentPrefix, refreshFiles])
+
+  // 移除上传项
+  const handleUploadRemove = useCallback((id: string) => {
+    setUploads((prev) => prev.filter((u) => u.id !== id))
+  }, [])
+
   // 未配置凭证或强制显示配置页面时显示配置页面
   if (!hasValidCredentials || forceShowConfig) {
     return <ConfigPage onConfigured={handleConfigured} />
@@ -346,9 +423,9 @@ function App() {
               >
                 <h2 className="text-lg font-medium mb-4">上传文件</h2>
                 <FileUploader
-                  uploads={[]}
-                  onDrop={(files) => console.log('Upload:', files)}
-                  onRemove={() => {}}
+                  uploads={uploads}
+                  onDrop={handleUpload}
+                  onRemove={handleUploadRemove}
                 />
               </motion.div>
             </motion.div>

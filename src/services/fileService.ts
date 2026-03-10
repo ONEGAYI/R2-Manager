@@ -71,21 +71,14 @@ export const fileService = {
   },
 
   /**
-   * 上传文件（通过预签名 URL）
+   * 上传文件（通过后端代理，避免CORS)
    */
-  async uploadFile(bucketName: string, key: string, file: File): Promise<void> {
-    const uploadUrl = await this.getUploadUrl(bucketName, key, file.type)
-
-    const response = await fetch(uploadUrl, {
-      method: 'PUT',
-      body: file,
-      headers: {
-        'Content-Type': file.type,
-      },
-    })
-
-    if (!response.ok) {
-      throw new Error(`上传失败: ${response.statusText}`)
-    }
+  async uploadFile(
+    bucketName: string,
+    key: string,
+    file: File,
+    onProgress?: (progress: number) => void
+  ): Promise<void> {
+    await api.uploadFile(bucketName, key, file, onProgress)
   },
 }

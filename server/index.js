@@ -31,6 +31,8 @@ function createClient(credentials) {
       accessKeyId: credentials.accessKeyId,
       secretAccessKey: credentials.secretAccessKey,
     },
+    // 禁用 chunked encoding 以避免流式哈希问题
+    requestChecksumCalculation: 'OFF',
   })
 }
 
@@ -198,6 +200,36 @@ app.post('/api/buckets/:bucketName/objects/:key(*)/upload-url', async (req, res)
     res.json({ url })
   } catch (error) {
     console.error('获取上传 URL 失败:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// API: 直接上传文件（通过后端代理，避免CORS）
+app.post('/api/buckets/:bucketName/objects/:key(*)/upload', express.raw({ type: () => true, limit: '100mb' }), async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName, key } = req.params
+
+  try {
+    const contentType = req.headers['content-type'] || 'application/octet-stream'
+
+    console.log('[Upload] Bucket:', bucketName, 'Key:', key, 'Size:', req.body.length, 'Type:', contentType)
+
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+      Body: req.body,
+      ContentType: contentType,
+      ContentLength: req.body.length,
+    })
+
+    await r2Client.send(command)
+    console.log('[Upload] Success:', key)
+    res.json({ success: true, key })
+  } catch (error) {
+    console.error('上传文件失败:', error)
     res.status(500).json({ error: error.message })
   }
 })

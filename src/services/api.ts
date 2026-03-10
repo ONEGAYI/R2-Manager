@@ -17,10 +17,13 @@ class ApiService {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
+    // 如果 body 是 File 或 FormData，不设置默认 Content-Type
+    const isFileUpload = options.body instanceof File || options.body instanceof FormData
+
     const response = await fetch(`${API_BASE}${endpoint}`, {
       ...options,
       headers: {
-        'Content-Type': 'application/json',
+        ...(isFileUpload ? {} : { 'Content-Type': 'application/json' }),
         ...options.headers,
       },
     })
@@ -97,6 +100,54 @@ class ApiService {
     return this.request(`/buckets/${bucketName}/objects/${encodeURIComponent(key)}/upload-url`, {
       method: 'POST',
       body: JSON.stringify({ contentType }),
+    })
+  }
+
+  // 直接上传文件（通过后端代理，使用 XHR 支持进度跟踪）
+  uploadFile(
+    bucketName: string,
+    key: string,
+    file: File,
+    onProgress?: (progress: number) => void
+  ): Promise<{ success: boolean; key: string }> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      const url = `${API_BASE}/buckets/${bucketName}/objects/${encodeURIComponent(key)}/upload`
+
+      // 上传进度事件
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable && onProgress) {
+          const progress = Math.round((e.loaded / e.total) * 100)
+          onProgress(progress)
+        }
+      })
+
+      // 请求完成
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const response = JSON.parse(xhr.responseText)
+            resolve(response)
+          } catch {
+            reject(new Error('Invalid response'))
+          }
+        } else {
+          try {
+            const error = JSON.parse(xhr.responseText)
+            reject(new Error(error.error || `Upload failed: ${xhr.status}`))
+          } catch {
+            reject(new Error(`Upload failed: ${xhr.status}`))
+          }
+        }
+      })
+
+      // 请求错误
+      xhr.addEventListener('error', () => reject(new Error('Network error')))
+      xhr.addEventListener('abort', () => reject(new Error('Upload aborted')))
+
+      // 发送请求
+      xhr.open('POST', url)
+      xhr.send(file)
     })
   }
 
