@@ -16,7 +16,14 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 const app = express()
 app.use(cors())
-app.use(express.json())
+// 仅对非上传请求使用 JSON 解析
+app.use((req, res, next) => {
+  // 上传端点使用 raw 解析，跳过 JSON 中间件
+  if (req.path.includes('/upload') && req.method === 'POST') {
+    return next()
+  }
+  express.json()(req, res, next)
+})
 
 // 存储客户端实例和凭证
 let r2Client = null
@@ -177,6 +184,45 @@ app.get('/api/buckets/:bucketName/objects/:key(*)/url', async (req, res) => {
     res.json({ url })
   } catch (error) {
     console.error('获取下载 URL 失败:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// API: 代理下载文件（解决跨域下载问题）
+app.get('/api/buckets/:bucketName/objects/:key(*)/download', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName, key } = req.params
+
+  try {
+    const command = new GetObjectCommand({ Bucket: bucketName, Key: key })
+    const response = await r2Client.send(command)
+
+    // 获取文件名（从 key 中提取最后一部分）
+    const filename = key.split('/').pop() || 'download'
+
+    // 设置响应头，强制下载
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`)
+    res.setHeader('Content-Type', response.ContentType || 'application/octet-stream')
+    if (response.ContentLength) {
+      res.setHeader('Content-Length', response.ContentLength)
+    }
+
+    // 将流管道到响应
+    const stream = response.Body
+    if (stream && typeof stream.pipe === 'function') {
+      stream.pipe(res)
+    } else if (stream instanceof Uint8Array) {
+      // 处理 Uint8Array 类型
+      res.send(Buffer.from(stream))
+    } else {
+      // 处理其他类型
+      res.send(stream)
+    }
+  } catch (error) {
+    console.error('下载文件失败:', error)
     res.status(500).json({ error: error.message })
   }
 })

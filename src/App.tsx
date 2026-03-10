@@ -18,6 +18,31 @@ import { fileService } from '@/services/fileService'
 import type { UploadFile } from '@/types/file'
 import '@/styles/globals.css'
 
+// 并发限制工具函数
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  taskFn: (item: T) => Promise<void>
+): Promise<void> {
+  const executing: Set<Promise<void>> = new Set()
+
+  for (const item of items) {
+    // 如果已达到并发上限，等待任意一个任务完成
+    if (executing.size >= concurrency) {
+      await Promise.race(executing)
+    }
+
+    // 创建任务并添加到执行集合
+    const promise = taskFn(item).finally(() => {
+      executing.delete(promise)
+    })
+    executing.add(promise)
+  }
+
+  // 等待所有剩余任务完成
+  await Promise.all(executing)
+}
+
 function App() {
   const [showUploader, setShowUploader] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -46,6 +71,8 @@ function App() {
     isConnected,
     hasCredentials,
     setConnected,
+    maxUploadThreads,
+    maxDownloadThreads,
   } = useConfigStore()
 
   // 检查是否有有效凭证
@@ -159,22 +186,17 @@ function App() {
 
   // 处理单个下载
   const handleDownload = useCallback(
-    async (key: string) => {
+    (key: string) => {
       if (!selectedBucket) return
 
-      try {
-        const { url } = await api.getDownloadUrl(selectedBucket, key)
-        // 创建一个隐藏的 a 标签来触发下载
-        const a = document.createElement('a')
-        a.href = url
-        a.download = key.split('/').pop() || 'download'
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-      } catch (error) {
-        console.error('Download failed:', error)
-        alert('下载失败: ' + (error as Error).message)
-      }
+      // 使用代理下载端点，避免跨域问题
+      const url = api.getProxyDownloadUrl(selectedBucket, key)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = key.split('/').pop() || 'download'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
     },
     [selectedBucket]
   )
@@ -212,35 +234,29 @@ function App() {
 
     const keys = Array.from(selectedKeys)
 
-    try {
-      const { results } = await api.batchGetDownloadUrls(selectedBucket, keys)
+    // 使用并发限制下载
+    await runWithConcurrency(keys, maxDownloadThreads, async (key) => {
+      const url = api.getProxyDownloadUrl(selectedBucket, key)
+      const filename = key.split('/').pop() || 'download'
 
-      const successCount = results.filter((r) => r.success).length
-      const failCount = results.filter((r) => !r.success).length
-
-      if (failCount > 0) {
-        alert(`${successCount} 个文件开始下载，${failCount} 个失败`)
+      try {
+        const response = await fetch(url)
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const blob = await response.blob()
+        const blobUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = blobUrl
+        a.download = filename
+        a.click()
+        URL.revokeObjectURL(blobUrl)
+      } catch (error) {
+        console.error(`下载失败: ${filename}`, error)
       }
-
-      // 触发所有成功的下载
-      results.forEach((result) => {
-        if (result.success && result.url) {
-          const a = document.createElement('a')
-          a.href = result.url
-          a.download = result.key.split('/').pop() || 'download'
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-        }
-      })
-    } catch (error) {
-      console.error('Batch download failed:', error)
-      alert('批量下载失败: ' + (error as Error).message)
-    }
-  }, [selectedBucket, selectedKeys, selectedCount])
+    })
+  }, [selectedBucket, selectedKeys, selectedCount, maxDownloadThreads])
 
   // 处理文件上传
-  const handleUpload = useCallback(async (files: File[]) => {
+  const handleUpload = useCallback((files: File[]) => {
     console.log('handleUpload called with files:', files.length, 'bucket:', selectedBucket)
     if (!selectedBucket) {
       console.error('No bucket selected')
@@ -258,55 +274,52 @@ function App() {
     console.log('Creating upload tasks:', newUploads)
     setUploads((prev) => [...prev, ...newUploads])
 
-    // 逐个上传文件
-    for (const upload of newUploads) {
-      try {
-        console.log('Starting upload:', upload.file.name)
+    // 使用并发限制上传
+    const bucket = selectedBucket
+    const prefix = currentPrefix
 
-        // 更新状态为上传中
+    runWithConcurrency(newUploads, maxUploadThreads, async (upload) => {
+      // 更新状态为上传中
+      setUploads((prev) =>
+        prev.map((u) =>
+          u.id === upload.id ? { ...u, status: 'uploading', progress: 0 } : u
+        )
+      )
+
+      // 计算上传路径
+      const key = prefix + upload.file.name
+      console.log('Upload key:', key, 'to bucket:', bucket)
+
+      // 执行上传，带进度回调
+      await fileService.uploadFile(bucket, key, upload.file, (progress) => {
         setUploads((prev) =>
           prev.map((u) =>
-            u.id === upload.id ? { ...u, status: 'uploading', progress: 0 } : u
+            u.id === upload.id ? { ...u, progress } : u
           )
         )
+      })
 
-        // 计算上传路径（包含当前前缀）
-        const key = currentPrefix + upload.file.name
-        console.log('Upload key:', key, 'to bucket:', selectedBucket)
-
-        // 执行上传，带进度回调
-        await fileService.uploadFile(selectedBucket, key, upload.file, (progress) => {
-          setUploads((prev) =>
-            prev.map((u) =>
-              u.id === upload.id ? { ...u, progress } : u
-            )
-          )
-        })
-        console.log('Upload completed:', upload.file.name)
-
-        // 更新状态为完成
-        setUploads((prev) =>
-          prev.map((u) =>
-            u.id === upload.id ? { ...u, status: 'completed', progress: 100 } : u
-          )
+      // 上传完成
+      console.log('Upload completed:', upload.file.name)
+      setUploads((prev) =>
+        prev.map((u) =>
+          u.id === upload.id ? { ...u, status: 'completed', progress: 100 } : u
         )
-      } catch (error) {
-        console.error('Upload failed:', error)
-        // 更新状态为错误
-        setUploads((prev) =>
-          prev.map((u) =>
-            u.id === upload.id
-              ? { ...u, status: 'error', error: (error as Error).message }
-              : u
-          )
+      )
+      // 刷新文件列表
+      refreshFiles(bucket, prefix)
+    }).catch((error) => {
+      console.error('Upload failed:', error)
+      // 标记失败的任务
+      setUploads((prev) =>
+        prev.map((u) =>
+          newUploads.some((nu) => nu.id === u.id) && u.status === 'uploading'
+            ? { ...u, status: 'error', error: error.message }
+            : u
         )
-      }
-    }
-
-    // 所有上传完成后刷新文件列表
-    console.log('Refreshing file list')
-    refreshFiles(selectedBucket, currentPrefix)
-  }, [selectedBucket, currentPrefix, refreshFiles])
+      )
+    })
+  }, [selectedBucket, currentPrefix, refreshFiles, maxUploadThreads])
 
   // 移除上传项
   const handleUploadRemove = useCallback((id: string) => {

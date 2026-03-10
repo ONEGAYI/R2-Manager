@@ -91,6 +91,11 @@ class ApiService {
     return this.request(`/buckets/${bucketName}/objects/${encodeURIComponent(key)}/url`)
   }
 
+  // 获取代理下载 URL（用于直接下载，避免跨域问题）
+  getProxyDownloadUrl(bucketName: string, key: string): string {
+    return `${API_BASE}/buckets/${bucketName}/objects/${encodeURIComponent(key)}/download`
+  }
+
   // 获取上传 URL
   async getUploadUrl(
     bucketName: string,

@@ -3,6 +3,10 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type { AppConfig, R2Credentials, ConnectionStatus } from '@/types/config'
 
 interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
+  // 并发设置
+  maxUploadThreads: number
+  maxDownloadThreads: number
+
   // R2 凭证操作
   setCredentials: (creds: Partial<R2Credentials>) => void
   clearCredentials: () => void
@@ -15,6 +19,7 @@ interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
   setTheme: (theme: AppConfig['theme']) => void
   setViewMode: (mode: AppConfig['viewMode']) => void
   setDefaultBucket: (bucket?: string) => void
+  setConcurrencySettings: (settings: { maxUploadThreads?: number; maxDownloadThreads?: number }) => void
 }
 
 const emptyCredentials: R2Credentials = {
@@ -32,6 +37,9 @@ export const useConfigStore = create<ConfigState>()(
       viewMode: 'list',
       defaultBucket: undefined,
       isConnected: false,
+      // 并发设置
+      maxUploadThreads: 4,
+      maxDownloadThreads: 4,
 
       // R2 凭证操作
       setCredentials: (creds) =>
@@ -62,6 +70,7 @@ export const useConfigStore = create<ConfigState>()(
       setTheme: (theme) => set({ theme }),
       setViewMode: (viewMode) => set({ viewMode }),
       setDefaultBucket: (defaultBucket) => set({ defaultBucket }),
+      setConcurrencySettings: (settings) => set((state) => ({ ...state, ...settings })),
     }),
     {
       name: 'r2-manager-config',
@@ -74,6 +83,8 @@ export const useConfigStore = create<ConfigState>()(
         theme: state.theme,
         viewMode: state.viewMode,
         defaultBucket: state.defaultBucket,
+        maxUploadThreads: state.maxUploadThreads,
+        maxDownloadThreads: state.maxDownloadThreads,
       }),
     }
   )

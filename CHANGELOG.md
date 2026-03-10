@@ -10,11 +10,19 @@ All notable changes to this project will be documented in this file.
 - 全选复选框，支持全选/取消全选当前层级
 - 递归删除文件夹内容
 - 设置菜单中添加重启服务按钮
+- **并发控制功能**
+  - 设置中添加并发配置（上传/下载线程数）
+  - `runWithConcurrency` 工具函数实现并发限制
+  - 批量下载使用并发控制避免浏览器连接耗尽
+  - 批量上传使用并发控制避免请求超时
 
 ### Fixed
 - 文件夹复选框从静态图标改为真正的复选框
 - 修复批量删除文件夹时无法删除的问题
 - 修复 lucide-react Bucket 图标不存在的问题
+- 修复 `useConfigStore()` 在 `useCallback` 内调用导致页面崩溃的问题
+- 修复批量下载中 `bucket` 变量未定义的错误
+- 修复 `runWithConcurrency` 工具函数清空数组导致任务丢失的 bug
 
 ---
 

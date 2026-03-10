@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Key, Eye, EyeOff, Loader2, Trash2, CheckCircle, RefreshCw } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Key, Eye, EyeOff, Loader2, Trash2, CheckCircle, RefreshCw, Settings2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -27,9 +27,12 @@ export function SettingsDialog({
     accountId,
     accessKeyId,
     secretAccessKey,
+    maxUploadThreads,
+    maxDownloadThreads,
     setCredentials,
     clearCredentials,
     setConnected,
+    setConcurrencySettings,
   } = useConfigStore()
 
   const [formData, setFormData] = useState({
@@ -37,6 +40,19 @@ export function SettingsDialog({
     accessKeyId,
     secretAccessKey,
   })
+  const [concurrencyData, setConcurrencyData] = useState({
+    maxUploadThreads,
+    maxDownloadThreads,
+  })
+
+  // 同步 store 中的并发设置到本地状态
+  useEffect(() => {
+    setConcurrencyData({
+      maxUploadThreads,
+      maxDownloadThreads,
+    })
+  }, [maxUploadThreads, maxDownloadThreads])
+
   const [showSecret, setShowSecret] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
   const [testError, setTestError] = useState<string | null>(null)
@@ -73,6 +89,7 @@ export function SettingsDialog({
 
   const handleSave = async () => {
     setCredentials(formData)
+    setConcurrencySettings(concurrencyData)
 
     await api.configure(formData)
     setConnected({ isConnected: true, lastChecked: new Date().toISOString() })
@@ -201,6 +218,54 @@ export function SettingsDialog({
                 保存
               </Button>
             </div>
+          </div>
+
+          {/* 并发设置 */}
+          <div className="pt-4 border-t space-y-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Settings2 className="w-4 h-4" />
+              并发设置
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">最大上传并发数</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={concurrencyData.maxUploadThreads}
+                  onChange={(e) =>
+                    setConcurrencyData((prev) => ({
+                      ...prev,
+                      maxUploadThreads: Math.max(1, Math.min(10, parseInt(e.target.value) || 4)),
+                    }))
+                  }
+                  className="font-mono text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">最大下载并发数</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={concurrencyData.maxDownloadThreads}
+                  onChange={(e) =>
+                    setConcurrencyData((prev) => ({
+                      ...prev,
+                      maxDownloadThreads: Math.max(1, Math.min(10, parseInt(e.target.value) || 4)),
+                    }))
+                  }
+                  className="font-mono text-sm"
+                />
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              限制同时上传/下载的文件数量（1-10），较高的值可能会增加系统负载
+            </p>
           </div>
 
           {/* 系统操作 */}
