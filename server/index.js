@@ -1,5 +1,6 @@
 import express from 'express'
 import cors from 'cors'
+import { spawn } from 'child_process'
 import {
   S3Client,
   ListBucketsCommand,
@@ -393,6 +394,30 @@ app.post('/api/buckets/:bucketName/objects/batch-urls', async (req, res) => {
     console.error('批量获取 URL 失败:', error)
     res.status(500).json({ error: error.message })
   }
+})
+
+// API: 重启服务器
+app.post('/api/system/restart', async (req, res) => {
+  res.json({ success: true, message: '服务器正在重启...' })
+
+  // 延迟重启，确保响应已发送
+  setTimeout(() => {
+    console.log('正在重启服务器...')
+
+    // 启动新进程
+    const child = spawn(process.argv[0], [process.argv[1]], {
+      cwd: process.cwd(),
+      detached: true,
+      stdio: 'inherit',
+      shell: false,
+    })
+
+    // 让子进程独立运行
+    child.unref()
+
+    // 退出当前进程
+    process.exit(0)
+  }, 500)
 })
 
 const PORT = process.env.PORT || 3001

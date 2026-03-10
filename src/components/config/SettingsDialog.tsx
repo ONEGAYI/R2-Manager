@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Key, Eye, EyeOff, Loader2, Trash2, CheckCircle } from 'lucide-react'
+import { Key, Eye, EyeOff, Loader2, Trash2, CheckCircle, RefreshCw } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -41,6 +41,7 @@ export function SettingsDialog({
   const [isTesting, setIsTesting] = useState(false)
   const [testError, setTestError] = useState<string | null>(null)
   const [testSuccess, setTestSuccess] = useState(false)
+  const [isRestarting, setIsRestarting] = useState(false)
 
   const handleInputChange = (field: keyof typeof formData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -59,7 +60,6 @@ export function SettingsDialog({
     setTestSuccess(false)
 
     try {
-      // 临时配置 API 进行测试
       await api.configure(formData)
       await api.testConnection()
       setTestSuccess(true)
@@ -74,7 +74,6 @@ export function SettingsDialog({
   const handleSave = async () => {
     setCredentials(formData)
 
-    // 配置 API 客户端
     await api.configure(formData)
     setConnected({ isConnected: true, lastChecked: new Date().toISOString() })
 
@@ -86,8 +85,28 @@ export function SettingsDialog({
     if (confirm('确定要清除所有配置吗？这将退出登录。')) {
       clearCredentials()
       onOpenChange(false)
-      // 刷新页面以返回配置页面
       window.location.reload()
+    }
+  }
+
+  const handleRestart = async () => {
+    if (!confirm('确定要重启前后端服务吗？\n这将暂时中断当前连接。')) {
+      return
+    }
+
+    setIsRestarting(true)
+
+    try {
+      await api.restartServer()
+      alert('后端服务正在重启...\n\n请等待几秒后刷新页面。')
+      // 刷新页面以重新连接
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000)
+    } catch (error) {
+      console.error('Restart failed:', error)
+      alert('重启失败: ' + (error as Error).message)
+      setIsRestarting(false)
     }
   }
 
@@ -180,6 +199,31 @@ export function SettingsDialog({
               </Button>
               <Button size="sm" onClick={handleSave}>
                 保存
+              </Button>
+            </div>
+          </div>
+
+          {/* 系统操作 */}
+          <div className="pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">重启服务</p>
+                <p className="text-xs text-muted-foreground">
+                  重启前后端服务以应用代码更改
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRestart}
+                disabled={isRestarting}
+              >
+                {isRestarting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4 mr-1" />
+                )}
+                {isRestarting ? '重启中...' : '重启'}
               </Button>
             </div>
           </div>

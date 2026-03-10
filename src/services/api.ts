@@ -130,6 +130,13 @@ class ApiService {
       body: JSON.stringify({ keys }),
     })
   }
+
+  // 重启服务器
+  async restartServer(): Promise<ApiResponse> {
+    return this.request('/system/restart', {
+      method: 'POST',
+    })
+  }
 }
 
 export const api = new ApiService()
