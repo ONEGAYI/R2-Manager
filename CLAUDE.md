@@ -56,7 +56,7 @@ cloudflare-r2-manager/
 │   │   ├── 📁 config/                # 配置组件 (ConfigPage, SettingsDialog)
 │   │   ├── 📁 bucket/                # 桶操作组件 (CreateBucket, DeleteBucketDialog)
 │   │   ├── 📁 file/                  # 文件操作组件 (FileList, FileGrid, FileUploader, FilePreview)
-│   │   └── 📁 common/                # 通用组件 (Loading, Empty, ConfirmDialog)
+│   │   └── 📁 common/                # 通用组件 (Loading, Empty, ThemeProvider, ThemeToggle)
 │   ├── 📁 hooks/                     # 自定义 Hooks (useConfig, useBuckets, useFiles, useUpload)
 │   ├── 📁 services/                  # API 服务层 (api, bucketService, fileService)
 │   ├── 📁 stores/                    # Zustand 状态 (configStore, bucketStore, fileStore)
@@ -137,7 +137,7 @@ cloudflare-r2-manager/
 - [ ] 文件预览功能
 
 ### Phase 3: 体验优化
-- [ ] 深色模式完善
+- [x] 深色模式（浅色/深色/跟随系统三种模式）
 - [ ] 响应式布局
 - [ ] 键盘快捷键
 - [ ] 拖拽上传

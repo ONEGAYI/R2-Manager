@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-03-11
+
+### Added
+- **深色模式支持**
+  - 主题状态管理 (`themeStore.ts`) - 支持浅色/深色/跟随系统三种模式
+  - 主题提供者 (`ThemeProvider.tsx`) - 统一管理主题应用到 DOM
+  - Header 主题切换下拉菜单 (`ThemeToggle.tsx`) - 太阳/月亮图标切换
+  - Sidebar 三段式主题切换器 - 长矩形三等分布局（浅色/跟随/深色）
+  - localStorage 持久化主题设置
+  - 监听系统主题变化自动切换
+
+### Changed
+- `main.tsx` - 使用 ThemeProvider 包装 App 组件
+- `Sidebar.tsx` - 底部主题按钮改为三段式切换器，使用 useThemeStore
+- `Header.tsx` - 添加主题切换下拉菜单
+- `App.tsx` - 移除重复的主题逻辑（统一由 ThemeProvider 管理）
+
+### Technical
+- 使用 Tailwind CSS `darkMode: ['class']` 配置
+- shadcn/ui CSS 变量已预定义浅色/深色两套主题
+- 主题状态与 UI 组件完全解耦
+
+---
+
 ## [0.4.0] - 2026-03-11
 
 ### Added

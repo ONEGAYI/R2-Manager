@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { ThemeToggle } from '@/components/common/ThemeToggle'
 
 interface HeaderProps {
   bucketName: string | null
@@ -221,6 +222,9 @@ export function Header({
         >
           <RefreshCw className="h-4 w-4" />
         </motion.button>
+
+        {/* 主题切换 */}
+        <ThemeToggle />
 
         <div className="flex border rounded-md">
           <button

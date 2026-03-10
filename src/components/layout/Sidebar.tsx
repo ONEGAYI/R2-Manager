@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Database, Settings, Moon, Sun, Plus, MoreVertical, Trash2 } from 'lucide-react'
+import { Database, Settings, Plus, MoreVertical, Trash2, Sun, Moon, Monitor } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/cn'
-import { useConfig } from '@/hooks/useConfig'
+import { useThemeStore } from '@/stores/themeStore'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,7 +28,7 @@ export function Sidebar({
   onCreateBucket,
   onDeleteBucket,
 }: SidebarProps) {
-  const { theme, setTheme } = useConfig()
+  const { theme, setTheme } = useThemeStore()
   const [deleteBucketName, setDeleteBucketName] = useState<string | null>(null)
 
   const handleDeleteBucket = async (name: string): Promise<boolean> => {
@@ -123,17 +123,59 @@ export function Sidebar({
 
         {/* 底部操作 */}
         <div className="p-2 border-t space-y-1">
-          <button
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors"
-          >
-            {theme === 'dark' ? (
-              <Sun className="h-4 w-4" />
-            ) : (
-              <Moon className="h-4 w-4" />
-            )}
-            {theme === 'dark' ? '浅色模式' : '深色模式'}
-          </button>
+          {/* 主题切换器 - 三段式 */}
+          <div className="px-1">
+            <div className="relative h-8 rounded-sm overflow-hidden border border-border flex">
+              {/* 浅色模式 */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setTheme('light')}
+                className={cn(
+                  'flex-1 flex items-center justify-center transition-colors',
+                  theme === 'light'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-transparent hover:bg-accent text-muted-foreground hover:text-foreground'
+                )}
+                title="浅色模式"
+              >
+                <Sun className="h-4 w-4" />
+              </motion.button>
+
+              {/* 跟随系统 */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setTheme('system')}
+                className={cn(
+                  'flex-1 flex items-center justify-center transition-colors border-x border-border',
+                  theme === 'system'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-transparent hover:bg-accent text-muted-foreground hover:text-foreground'
+                )}
+                title="跟随系统"
+              >
+                <Monitor className="h-4 w-4" />
+              </motion.button>
+
+              {/* 深色模式 */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setTheme('dark')}
+                className={cn(
+                  'flex-1 flex items-center justify-center transition-colors',
+                  theme === 'dark'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-transparent hover:bg-accent text-muted-foreground hover:text-foreground'
+                )}
+                title="深色模式"
+              >
+                <Moon className="h-4 w-4" />
+              </motion.button>
+            </div>
+          </div>
+
           {onOpenSettings && (
             <button
               onClick={onOpenSettings}
