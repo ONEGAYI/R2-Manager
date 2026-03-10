@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [0.3.0] - 2026-03-10
 
 ### Added
+- **新建文件夹功能**
+  - Header 新建文件夹按钮
+  - 创建文件夹对话框 UI
+  - 后端 `/api/buckets/:bucketName/folders` 端点
+  - 通过上传空对象模拟文件夹（S3/R2 机制）
 - 文件/文件夹行操作菜单（三个点），支持删除和下载
 - 批量操作菜单（Header），支持批量删除和下载
 - 全选复选框，支持全选/取消全选当前层级
@@ -29,6 +34,7 @@ All notable changes to this project will be documented in this file.
   - 危险操作独立页面（红色警告风格）
 
 ### Fixed
+- 修复新建文件夹后显示空名字文件的问题（过滤以 `/` 结尾的对象）
 - 文件夹复选框从静态图标改为真正的复选框
 - 修复批量删除文件夹时无法删除的问题
 - 修复 lucide-react Bucket 图标不存在的问题

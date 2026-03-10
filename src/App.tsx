@@ -46,6 +46,9 @@ async function runWithConcurrency<T>(
 function App() {
   const [showUploader, setShowUploader] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showCreateFolder, setShowCreateFolder] = useState(false)
+  const [folderName, setFolderName] = useState('')
+  const [creating, setCreating] = useState(false)
   const [forceShowConfig, setForceShowConfig] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [uploads, setUploads] = useState<UploadFile[]>([])
@@ -326,6 +329,28 @@ function App() {
     setUploads((prev) => prev.filter((u) => u.id !== id))
   }, [])
 
+  // 处理创建文件夹
+  const handleCreateFolder = useCallback(async () => {
+    if (!selectedBucket || !folderName.trim()) return
+
+    try {
+      setCreating(true)
+      // 构建完整路径：当前前缀 + 文件夹名 + /
+      const folderPath = currentPrefix + folderName.trim() + '/'
+      await fileService.createFolder(selectedBucket, folderPath)
+      // 关闭对话框并重置
+      setShowCreateFolder(false)
+      setFolderName('')
+      // 刷新文件列表
+      refreshFiles(selectedBucket, currentPrefix)
+    } catch (error) {
+      console.error('Create folder failed:', error)
+      alert('创建文件夹失败: ' + (error as Error).message)
+    } finally {
+      setCreating(false)
+    }
+  }, [selectedBucket, currentPrefix, folderName, refreshFiles])
+
   // 未配置凭证或强制显示配置页面时显示配置页面
   if (!hasValidCredentials || forceShowConfig) {
     return <ConfigPage onConfigured={handleConfigured} />
@@ -345,7 +370,10 @@ function App() {
           selectedCount={selectedCount}
           onRefresh={() => selectedBucket && refreshFiles(selectedBucket, currentPrefix)}
           onUpload={() => setShowUploader(true)}
-          onCreateFolder={() => console.log('Create folder')}
+          onCreateFolder={() => {
+            setFolderName('')
+            setShowCreateFolder(true)
+          }}
           onNavigateBack={() => {
             if (selectedBucket && currentPrefix) {
               // 返回上一级
@@ -440,6 +468,62 @@ function App() {
                   onDrop={handleUpload}
                   onRemove={handleUploadRemove}
                 />
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 创建文件夹对话框 */}
+        <AnimatePresence>
+          {showCreateFolder && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+              onClick={() => !creating && setShowCreateFolder(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-card rounded-lg shadow-xl p-6 w-full max-w-md mx-4"
+              >
+                <h2 className="text-lg font-medium mb-4">新建文件夹</h2>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-muted-foreground mb-2">
+                      文件夹名称
+                    </label>
+                    <input
+                      type="text"
+                      value={folderName}
+                      onChange={(e) => setFolderName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleCreateFolder()}
+                      placeholder="输入文件夹名称"
+                      disabled={creating}
+                      className="w-full px-3 py-2 bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => !creating && setShowCreateFolder(false)}
+                      disabled={creating}
+                      className="px-4 py-2 text-sm rounded-md hover:bg-muted disabled:opacity-50"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={handleCreateFolder}
+                      disabled={creating || !folderName.trim()}
+                      className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      {creating ? '创建中...' : '创建'}
+                    </button>
+                  </div>
+                </div>
               </motion.div>
             </motion.div>
           )}

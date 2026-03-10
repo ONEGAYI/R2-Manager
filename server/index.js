@@ -441,6 +441,37 @@ app.post('/api/buckets/:bucketName/objects/batch-delete', async (req, res) => {
   }
 })
 
+// API: 创建文件夹（上传一个以 / 结尾的空对象）
+app.post('/api/buckets/:bucketName/folders', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName } = req.params
+  const { folderPath } = req.body
+
+  if (!folderPath) {
+    return res.status(400).json({ error: '缺少文件夹路径' })
+  }
+
+  // 确保文件夹路径以 / 结尾
+  const normalizedPath = folderPath.endsWith('/') ? folderPath : `${folderPath}/`
+
+  try {
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: normalizedPath,
+      Body: Buffer.alloc(0), // 空内容
+      ContentType: 'application/x-directory',
+    })
+    await r2Client.send(command)
+    res.json({ success: true, message: '文件夹创建成功', path: normalizedPath })
+  } catch (error) {
+    console.error('创建文件夹失败:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 // API: 批量获取下载 URL
 app.post('/api/buckets/:bucketName/objects/batch-urls', async (req, res) => {
   if (!r2Client) {

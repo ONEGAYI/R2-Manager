@@ -187,6 +187,17 @@ class ApiService {
     })
   }
 
+  // 创建文件夹
+  async createFolder(
+    bucketName: string,
+    folderPath: string
+  ): Promise<{ success: boolean; message: string; path: string }> {
+    return this.request(`/buckets/${bucketName}/folders`, {
+      method: 'POST',
+      body: JSON.stringify({ folderPath }),
+    })
+  }
+
   // 重启服务器
   async restartServer(): Promise<ApiResponse> {
     return this.request('/system/restart', {

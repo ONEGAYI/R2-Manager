@@ -81,4 +81,12 @@ export const fileService = {
   ): Promise<void> {
     await api.uploadFile(bucketName, key, file, onProgress)
   },
+
+  /**
+   * 创建文件夹
+   */
+  async createFolder(bucketName: string, folderPath: string): Promise<{ path: string }> {
+    const response = await api.createFolder(bucketName, folderPath)
+    return { path: response.path }
+  },
 }

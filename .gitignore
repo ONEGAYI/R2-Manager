@@ -39,3 +39,6 @@ r2-credentials.json
 
 # Claude Code
 .claude/
+
+# Documents that are unnecessary to track
+TODO.md

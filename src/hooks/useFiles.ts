@@ -34,7 +34,9 @@ export function useFiles() {
 
       try {
         const response = await fileService.listObjects(bucketName, prefix)
-        setObjects(response.objects)
+        // 过滤掉以 / 结尾的对象（这些是文件夹标记，已通过 prefixes 显示）
+        const filteredObjects = response.objects.filter(obj => !obj.key.endsWith('/'))
+        setObjects(filteredObjects)
         setPrefixes(response.prefixes)
         setPrefix(prefix)
       } catch (err) {
