@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Bucket } from 'lucide-react'
+import { Database } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
 import type { Bucket as BucketType } from '@/types/bucket'
 
@@ -31,7 +31,7 @@ export function BucketList({ buckets, selectedBucket, onSelect }: BucketListProp
           >
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-md bg-primary/10">
-                <Bucket className="h-5 w-5 text-primary" />
+                <Database className="h-5 w-5 text-primary" />
               </div>
               <div>
                 <h3 className="font-medium">{bucket.name}</h3>

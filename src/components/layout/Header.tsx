@@ -1,26 +1,38 @@
-import { RefreshCw, Upload, FolderPlus, Grid, List, ChevronLeft, Copy, Check } from 'lucide-react'
+import { RefreshCw, Upload, FolderPlus, Grid, List, ChevronLeft, Copy, Check, Layers, Trash2, Download } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfig } from '@/hooks/useConfig'
 import { useState } from 'react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 interface HeaderProps {
   bucketName: string | null
   currentPath: string
+  selectedCount: number
   onRefresh: () => void
   onUpload: () => void
   onCreateFolder: () => void
   onNavigateBack?: () => void
   onNavigateTo?: (prefix: string) => void
+  onBatchDelete?: () => void
+  onBatchDownload?: () => void
 }
 
 export function Header({
   bucketName,
   currentPath,
+  selectedCount,
   onRefresh,
   onUpload,
   onCreateFolder,
   onNavigateBack,
   onNavigateTo,
+  onBatchDelete,
+  onBatchDownload,
 }: HeaderProps) {
   const { viewMode, setViewMode } = useConfig()
   const [copySuccess, setCopySuccess] = useState(false)
@@ -48,6 +60,9 @@ export function Header({
       }
     }
   }
+
+  // 是否有选中项
+  const hasSelection = selectedCount > 0
 
   if (!bucketName) {
     return (
@@ -106,6 +121,42 @@ export function Header({
 
       {/* 右侧：操作按钮 */}
       <div className="flex items-center gap-2 shrink-0">
+        {/* 批量操作菜单 */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <motion.button
+              whileHover={hasSelection ? { scale: 1.05 } : {}}
+              whileTap={hasSelection ? { scale: 0.95 } : {}}
+              disabled={!hasSelection}
+              className={cn(
+                'flex items-center gap-1 px-2.5 py-1.5 rounded-md border text-sm transition-colors',
+                hasSelection
+                  ? 'hover:bg-accent cursor-pointer'
+                  : 'opacity-50 cursor-not-allowed'
+              )}
+              title={hasSelection ? `已选择 ${selectedCount} 项` : '请先选择文件或文件夹'}
+            >
+              <Layers className="h-4 w-4" />
+              <span className="hidden sm:inline">
+                {hasSelection ? `批量操作 (${selectedCount})` : '批量操作'}
+              </span>
+            </motion.button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onBatchDownload}>
+              <Download className="h-4 w-4 mr-2" />
+              下载选中项
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={onBatchDelete}
+            >
+              <Trash2 className="h-4 w-4 mr-2" />
+              删除选中项
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         {/* 复制路径按钮 */}
         <motion.button
           whileHover={{ scale: 1.05 }}
@@ -190,4 +241,8 @@ export function Header({
       </div>
     </header>
   )
+}
+
+function cn(...classes: (string | boolean | undefined)[]) {
+  return classes.filter(Boolean).join(' ')
 }

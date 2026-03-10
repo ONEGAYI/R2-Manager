@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Bucket, MoreVertical, Trash2 } from 'lucide-react'
+import { Database, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { Bucket as BucketType } from '@/types/bucket'
 
@@ -28,7 +28,7 @@ export function BucketCard({
     >
       <div className="flex items-center gap-3">
         <div className="p-2 rounded-md bg-primary/10">
-          <Bucket className="h-5 w-5 text-primary" />
+          <Database className="h-5 w-5 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="font-medium truncate">{bucket.name}</h3>

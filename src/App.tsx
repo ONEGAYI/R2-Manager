@@ -20,6 +20,7 @@ function App() {
   const [showUploader, setShowUploader] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [forceShowConfig, setForceShowConfig] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const { buckets, selectedBucket, isLoading, selectBucket, refreshBuckets } =
     useBuckets()
@@ -31,6 +32,8 @@ function App() {
     selectedKeys,
     refreshFiles,
     selectKey,
+    selectAll,
+    clearSelection,
   } = useFiles()
 
   const {
@@ -44,6 +47,9 @@ function App() {
 
   // 检查是否有有效凭证
   const hasValidCredentials = hasCredentials()
+
+  // 选中项数量
+  const selectedCount = selectedKeys.size
 
   // 初始化 API 客户端
   useEffect(() => {
@@ -109,6 +115,127 @@ function App() {
     // TODO: 实现文件预览
   }
 
+  // 处理全选/取消全选
+  const handleSelectAll = useCallback(
+    (selected: boolean) => {
+      if (selected) {
+        // 选中当前层级所有文件和文件夹
+        const allKeys = [...prefixes, ...objects.map((obj) => obj.key)]
+        selectAll(allKeys)
+      } else {
+        clearSelection()
+      }
+    },
+    [prefixes, objects, selectAll, clearSelection]
+  )
+
+  // 处理单个删除
+  const handleDelete = useCallback(
+    async (key: string, isFolder: boolean) => {
+      if (!selectedBucket) return
+
+      const confirmMsg = isFolder
+        ? `确定要删除文件夹 "${key}" 及其所有内容吗？\n此操作不可恢复。`
+        : `确定要删除 "${key.split('/').pop()}" 吗？`
+
+      if (!window.confirm(confirmMsg)) return
+
+      try {
+        setDeleting(true)
+        await api.deleteObject(selectedBucket, key)
+        refreshFiles(selectedBucket, currentPrefix)
+      } catch (error) {
+        console.error('Delete failed:', error)
+        alert('删除失败: ' + (error as Error).message)
+      } finally {
+        setDeleting(false)
+      }
+    },
+    [selectedBucket, currentPrefix, refreshFiles]
+  )
+
+  // 处理单个下载
+  const handleDownload = useCallback(
+    async (key: string) => {
+      if (!selectedBucket) return
+
+      try {
+        const { url } = await api.getDownloadUrl(selectedBucket, key)
+        // 创建一个隐藏的 a 标签来触发下载
+        const a = document.createElement('a')
+        a.href = url
+        a.download = key.split('/').pop() || 'download'
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      } catch (error) {
+        console.error('Download failed:', error)
+        alert('下载失败: ' + (error as Error).message)
+      }
+    },
+    [selectedBucket]
+  )
+
+  // 处理批量删除
+  const handleBatchDelete = useCallback(async () => {
+    if (!selectedBucket || selectedCount === 0) return
+
+    const keys = Array.from(selectedKeys)
+    const confirmMsg = `确定要删除选中的 ${selectedCount} 项吗？\n\n${keys.slice(0, 5).map((k) => '• ' + k.split('/').pop()).join('\n')}${keys.length > 5 ? `\n... 还有 ${keys.length - 5} 项` : ''}`
+
+    if (!window.confirm(confirmMsg)) return
+
+    try {
+      setDeleting(true)
+      const result = await api.batchDelete(selectedBucket, keys)
+
+      if (result.errors && result.errors.length > 0) {
+        alert(`删除完成，但有 ${result.errors.length} 项失败:\n${result.errors.map((e) => e.key).join('\n')}`)
+      }
+
+      clearSelection()
+      refreshFiles(selectedBucket, currentPrefix)
+    } catch (error) {
+      console.error('Batch delete failed:', error)
+      alert('批量删除失败: ' + (error as Error).message)
+    } finally {
+      setDeleting(false)
+    }
+  }, [selectedBucket, selectedKeys, selectedCount, clearSelection, refreshFiles, currentPrefix])
+
+  // 处理批量下载
+  const handleBatchDownload = useCallback(async () => {
+    if (!selectedBucket || selectedCount === 0) return
+
+    const keys = Array.from(selectedKeys)
+
+    try {
+      const { results } = await api.batchGetDownloadUrls(selectedBucket, keys)
+
+      const successCount = results.filter((r) => r.success).length
+      const failCount = results.filter((r) => !r.success).length
+
+      if (failCount > 0) {
+        alert(`${successCount} 个文件开始下载，${failCount} 个失败`)
+      }
+
+      // 触发所有成功的下载
+      results.forEach((result) => {
+        if (result.success && result.url) {
+          const a = document.createElement('a')
+          a.href = result.url
+          a.download = result.key.split('/').pop() || 'download'
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+        }
+      })
+    } catch (error) {
+      console.error('Batch download failed:', error)
+      alert('批量下载失败: ' + (error as Error).message)
+    }
+  }, [selectedBucket, selectedKeys, selectedCount])
+
   // 未配置凭证或强制显示配置页面时显示配置页面
   if (!hasValidCredentials || forceShowConfig) {
     return <ConfigPage onConfigured={handleConfigured} />
@@ -125,6 +252,7 @@ function App() {
         <Header
           bucketName={selectedBucket}
           currentPath={currentPrefix}
+          selectedCount={selectedCount}
           onRefresh={() => selectedBucket && refreshFiles(selectedBucket, currentPrefix)}
           onUpload={() => setShowUploader(true)}
           onCreateFolder={() => console.log('Create folder')}
@@ -142,10 +270,12 @@ function App() {
               refreshFiles(selectedBucket, prefix)
             }
           }}
+          onBatchDelete={handleBatchDelete}
+          onBatchDownload={handleBatchDownload}
         />
 
         <AnimatePresence mode="wait">
-          {isLoading ? (
+          {isLoading || deleting ? (
             <Loading key="loading" />
           ) : !selectedBucket ? (
             <Empty
@@ -187,8 +317,11 @@ function App() {
                 prefixes={prefixes}
                 selectedKeys={selectedKeys}
                 onSelect={selectKey}
+                onSelectAll={handleSelectAll}
                 onOpenFolder={handleOpenFolder}
                 onOpenFile={handleOpenFile}
+                onDelete={handleDelete}
+                onDownload={handleDownload}
               />
             </motion.div>
           )}

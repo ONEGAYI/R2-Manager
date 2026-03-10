@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { motion } from 'framer-motion'
-import { Key, User, Lock, Eye, EyeOff, Loader2, Trash2, CheckCircle } from 'lucide-react'
+import { Key, Eye, EyeOff, Loader2, Trash2, CheckCircle } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -11,8 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useConfigStore } from '@/stores/configStore'
-import { createR2Client, setDefaultClient } from '@/services/r2Client'
-import { bucketService } from '@/services/bucketService'
+import { api } from '@/services/api'
 
 interface SettingsDialogProps {
   open: boolean
@@ -29,7 +27,6 @@ export function SettingsDialog({
     accountId,
     accessKeyId,
     secretAccessKey,
-    isConnected,
     setCredentials,
     clearCredentials,
     setConnected,
@@ -62,13 +59,9 @@ export function SettingsDialog({
     setTestSuccess(false)
 
     try {
-      const client = createR2Client({
-        accountId: formData.accountId,
-        accessKeyId: formData.accessKeyId,
-        secretAccessKey: formData.secretAccessKey,
-      })
-
-      await bucketService.listBuckets(client)
+      // 临时配置 API 进行测试
+      await api.configure(formData)
+      await api.testConnection()
       setTestSuccess(true)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '连接失败'
@@ -78,16 +71,11 @@ export function SettingsDialog({
     }
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setCredentials(formData)
 
-    // 更新客户端
-    const client = createR2Client({
-      accountId: formData.accountId,
-      accessKeyId: formData.accessKeyId,
-      secretAccessKey: formData.secretAccessKey,
-    })
-    setDefaultClient(client)
+    // 配置 API 客户端
+    await api.configure(formData)
     setConnected({ isConnected: true, lastChecked: new Date().toISOString() })
 
     onCredentialsChanged?.()

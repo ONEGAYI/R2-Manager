@@ -1,6 +1,12 @@
 import { api } from './api'
 import type { Bucket } from '@/types/bucket'
 
+// API 返回的 Bucket 类型
+interface ApiBucket {
+  name: string
+  creationDate?: string
+}
+
 /**
  * 存储桶服务（通过后端代理）
  */
@@ -11,7 +17,7 @@ export const bucketService = {
   async listBuckets(): Promise<{ buckets: Bucket[] }> {
     const response = await api.listBuckets()
     return {
-      buckets: response.buckets.map((b) => ({
+      buckets: response.buckets.map((b: ApiBucket) => ({
         name: b.name,
         creationDate: b.creationDate || '',
       })),
@@ -38,7 +44,7 @@ export const bucketService = {
   async bucketExists(bucketName: string): Promise<boolean> {
     try {
       const { buckets } = await api.listBuckets()
-      return buckets.some((b: Bucket) => b.name === bucketName)
+      return buckets.some((b: ApiBucket) => b.name === bucketName)
     } catch {
       return false
     }

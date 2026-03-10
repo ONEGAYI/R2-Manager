@@ -106,6 +106,30 @@ class ApiService {
       method: 'DELETE',
     })
   }
+
+  // 批量删除对象
+  async batchDelete(
+    bucketName: string,
+    keys: string[]
+  ): Promise<{ success: boolean; deleted: string[]; errors: Array<{ key: string; message: string }>; message: string }> {
+    return this.request(`/buckets/${bucketName}/objects/batch-delete`, {
+      method: 'POST',
+      body: JSON.stringify({ keys }),
+    })
+  }
+
+  // 批量获取下载 URL
+  async batchGetDownloadUrls(
+    bucketName: string,
+    keys: string[]
+  ): Promise<{
+    results: Array<{ key: string; url?: string; error?: string; success: boolean }>
+  }> {
+    return this.request(`/buckets/${bucketName}/objects/batch-urls`, {
+      method: 'POST',
+      body: JSON.stringify({ keys }),
+    })
+  }
 }
 
 export const api = new ApiService()
