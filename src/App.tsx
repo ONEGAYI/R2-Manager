@@ -9,6 +9,7 @@ import { Empty } from '@/components/common/Empty'
 import { Loading } from '@/components/common/Loading'
 import { ConfigPage } from '@/components/config/ConfigPage'
 import { SettingsDialog } from '@/components/config/SettingsDialog'
+import { CreateBucket } from '@/components/bucket/CreateBucket'
 import { useBuckets } from '@/hooks/useBuckets'
 import { useConfig } from '@/hooks/useConfig'
 import { useFiles } from '@/hooks/useFiles'
@@ -46,6 +47,7 @@ async function runWithConcurrency<T>(
 function App() {
   const [showUploader, setShowUploader] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showCreateBucket, setShowCreateBucket] = useState(false)
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [folderName, setFolderName] = useState('')
   const [creating, setCreating] = useState(false)
@@ -134,6 +136,42 @@ function App() {
   const handleSelectBucket = (name: string) => {
     selectBucket(name)
   }
+
+  // 处理创建桶
+  const handleCreateBucket = useCallback(
+    async (name: string): Promise<boolean> => {
+      try {
+        await api.createBucket(name)
+        refreshBuckets()
+        selectBucket(name)
+        return true
+      } catch (error) {
+        console.error('Create bucket failed:', error)
+        alert('创建存储桶失败: ' + (error as Error).message)
+        return false
+      }
+    },
+    [refreshBuckets, selectBucket]
+  )
+
+  // 处理删除桶
+  const handleDeleteBucket = useCallback(
+    async (name: string): Promise<boolean> => {
+      try {
+        await api.deleteBucket(name)
+        // 如果删除的是当前选中的桶，清除选择
+        if (selectedBucket === name) {
+          selectBucket(null)
+        }
+        refreshBuckets()
+        return true
+      } catch (error) {
+        console.error('Delete bucket failed:', error)
+        throw error
+      }
+    },
+    [selectedBucket, selectBucket, refreshBuckets]
+  )
 
   // 处理文件夹打开
   const handleOpenFolder = (prefix: string) => {
@@ -363,6 +401,8 @@ function App() {
         selectedBucket={selectedBucket}
         onSelectBucket={handleSelectBucket}
         onOpenSettings={() => setShowSettings(true)}
+        onCreateBucket={() => setShowCreateBucket(true)}
+        onDeleteBucket={handleDeleteBucket}
       >
         <Header
           bucketName={selectedBucket}
@@ -535,6 +575,13 @@ function App() {
         open={showSettings}
         onOpenChange={setShowSettings}
         onCredentialsChanged={handleCredentialsChanged}
+      />
+
+      {/* 创建存储桶对话框 */}
+      <CreateBucket
+        open={showCreateBucket}
+        onOpenChange={setShowCreateBucket}
+        onCreate={handleCreateBucket}
       />
     </>
   )

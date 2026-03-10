@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-03-11
+
+### Added
+- **存储桶管理功能**
+  - 左侧边栏"存储桶"标题旁添加创建桶按钮（+ 图标）
+  - 每个桶项右侧添加三个点菜单（鼠标悬停显示）
+  - 删除存储桶确认对话框（需输入桶名确认，类似 GitHub/CloudFlare 风格）
+  - `DeleteBucketDialog.tsx` 组件
+- **创建存储桶对话框** (`CreateBucket.tsx`)
+  - 桶名称格式校验（小写字母、数字、连字符）
+  - 创建成功后自动选中新桶
+
+### Changed
+- `Sidebar.tsx` - 添加桶操作下拉菜单和删除对话框
+- `MainLayout.tsx` - 添加 `onDeleteBucket` prop
+- `App.tsx` - 添加 `handleCreateBucket` 和 `handleDeleteBucket` 处理函数
+- `bucketStore.ts` - `selectBucket` 支持 null 类型
+
+---
+
 ## [0.3.0] - 2026-03-10
 
 ### Added

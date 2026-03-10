@@ -54,7 +54,7 @@ cloudflare-r2-manager/
 │   │   ├── 📁 ui/                    # shadcn/ui 基础组件
 │   │   ├── 📁 layout/                # 布局组件 (Sidebar, Header, MainLayout)
 │   │   ├── 📁 config/                # 配置组件 (ConfigPage, SettingsDialog)
-│   │   ├── 📁 bucket/                # 桶操作组件 (BucketList, BucketCard, CreateBucket)
+│   │   ├── 📁 bucket/                # 桶操作组件 (CreateBucket, DeleteBucketDialog)
 │   │   ├── 📁 file/                  # 文件操作组件 (FileList, FileGrid, FileUploader, FilePreview)
 │   │   └── 📁 common/                # 通用组件 (Loading, Empty, ConfirmDialog)
 │   ├── 📁 hooks/                     # 自定义 Hooks (useConfig, useBuckets, useFiles, useUpload)
@@ -108,6 +108,12 @@ cloudflare-r2-manager/
 - **删除**: 单个文件/文件夹删除（文件夹递归删除）
 - **下载**: 单个文件下载
 
+### 存储桶管理
+
+- **创建桶**: 左侧边栏"存储桶"标题旁的 + 按钮
+- **删除桶**: 每个桶项右侧的三个点菜单 → 删除存储桶
+  - 需要输入桶名确认（类似 GitHub/CloudFlare 的安全确认方式）
+
 ## 开发计划
 
 ### Phase 1: 核心功能 ✅
@@ -126,8 +132,9 @@ cloudflare-r2-manager/
 - [x] 文件上传进度（XHR 实现）
 - [x] 文件下载进度
 - [x] 新建文件夹
+- [x] 创建存储桶
+- [x] 删除存储桶（输入桶名确认）
 - [ ] 文件预览功能
-- [ ] 创建桶、删除桶
 
 ### Phase 3: 体验优化
 - [ ] 深色模式完善
