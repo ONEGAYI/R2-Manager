@@ -1,0 +1,40 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment files (包含敏感凭证)
+.env
+.env.local
+.env.*.local
+
+# Local storage backup (本地存储备份，包含 R2 凭证)
+*.localStorage
+localStorage.json
+r2-credentials.json
+
+# Claude Code
+.claude/
