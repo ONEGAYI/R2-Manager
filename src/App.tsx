@@ -13,7 +13,7 @@ import { useBuckets } from '@/hooks/useBuckets'
 import { useConfig } from '@/hooks/useConfig'
 import { useFiles } from '@/hooks/useFiles'
 import { useConfigStore } from '@/stores/configStore'
-import { createR2Client, setDefaultClient } from '@/services/r2Client'
+import { api } from '@/services/api'
 import '@/styles/globals.css'
 
 function App() {
@@ -45,16 +45,18 @@ function App() {
   // 检查是否有有效凭证
   const hasValidCredentials = hasCredentials()
 
-  // 初始化 R2 客户端
+  // 初始化 API 客户端
   useEffect(() => {
     if (hasValidCredentials && accountId && accessKeyId && secretAccessKey) {
-      const client = createR2Client({
-        accountId,
-        accessKeyId,
-        secretAccessKey,
-      })
-      setDefaultClient(client)
-      setConnected({ isConnected: true })
+      // 配置后端代理
+      api.configure({ accountId, accessKeyId, secretAccessKey })
+        .then(() => {
+          setConnected({ isConnected: true })
+        })
+        .catch((err) => {
+          console.error('Failed to configure API:', err)
+          setConnected({ isConnected: false, error: err.message })
+        })
     }
   }, [hasValidCredentials, accountId, accessKeyId, secretAccessKey, setConnected])
 
@@ -126,6 +128,20 @@ function App() {
           onRefresh={() => selectedBucket && refreshFiles(selectedBucket, currentPrefix)}
           onUpload={() => setShowUploader(true)}
           onCreateFolder={() => console.log('Create folder')}
+          onNavigateBack={() => {
+            if (selectedBucket && currentPrefix) {
+              // 返回上一级
+              const parts = currentPrefix.split('/').filter(Boolean)
+              parts.pop()
+              const parentPrefix = parts.length > 0 ? parts.join('/') + '/' : ''
+              refreshFiles(selectedBucket, parentPrefix)
+            }
+          }}
+          onNavigateTo={(prefix: string) => {
+            if (selectedBucket) {
+              refreshFiles(selectedBucket, prefix)
+            }
+          }}
         />
 
         <AnimatePresence mode="wait">

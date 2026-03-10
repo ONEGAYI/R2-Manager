@@ -1,10 +1,9 @@
 import { useCallback } from 'react'
 import { useFileStore } from '@/stores/fileStore'
 import { fileService } from '@/services/fileService'
-import { getDefaultClient } from '@/services/r2Client'
 
 /**
- * 文件操作 Hook
+ * 文件操作 Hook（通过后端代理）
  */
 export function useFiles() {
   const {
@@ -28,20 +27,13 @@ export function useFiles() {
     removeUpload,
   } = useFileStore()
 
-  const client = getDefaultClient()
-
   const refreshFiles = useCallback(
     async (bucketName: string, prefix: string = '') => {
-      if (!client) {
-        setError('未连接到 R2')
-        return
-      }
-
       setLoading(true)
       setError(null)
 
       try {
-        const response = await fileService.listObjects(client, bucketName, prefix)
+        const response = await fileService.listObjects(bucketName, prefix)
         setObjects(response.objects)
         setPrefixes(response.prefixes)
         setPrefix(prefix)
@@ -51,13 +43,11 @@ export function useFiles() {
         setLoading(false)
       }
     },
-    [client, setObjects, setPrefixes, setPrefix, setLoading, setError]
+    [setObjects, setPrefixes, setPrefix, setLoading, setError]
   )
 
   const uploadFile = useCallback(
     async (bucketName: string, file: File) => {
-      if (!client) return false
-
       const uploadId = Math.random().toString(36).substring(7)
       addUpload({
         id: uploadId,
@@ -68,14 +58,7 @@ export function useFiles() {
 
       try {
         const key = currentPrefix + file.name
-        const buffer = await file.arrayBuffer()
-        await fileService.uploadFile(
-          client,
-          bucketName,
-          key,
-          new Uint8Array(buffer),
-          file.type
-        )
+        await fileService.uploadFile(bucketName, key, file)
         updateUpload(uploadId, { progress: 100, status: 'completed' })
         return true
       } catch (err) {
@@ -86,21 +69,19 @@ export function useFiles() {
         return false
       }
     },
-    [client, currentPrefix, addUpload, updateUpload]
+    [currentPrefix, addUpload, updateUpload]
   )
 
   const deleteFiles = useCallback(
     async (bucketName: string, keys: string[]) => {
-      if (!client) return { deleted: [], errors: [] }
-
       try {
-        return await fileService.deleteFiles(client, bucketName, keys)
+        return await fileService.deleteFiles(bucketName, keys)
       } catch (err) {
         setError(err instanceof Error ? err.message : '删除文件失败')
         return { deleted: [], errors: keys }
       }
     },
-    [client, setError]
+    [setError]
   )
 
   return {

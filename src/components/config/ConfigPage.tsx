@@ -4,8 +4,7 @@ import { Database, Key, User, Lock, ExternalLink, Eye, EyeOff, Loader2 } from 'l
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useConfigStore } from '@/stores/configStore'
-import { createR2Client, setDefaultClient } from '@/services/r2Client'
-import { bucketService } from '@/services/bucketService'
+import { api } from '@/services/api'
 import { cn } from '@/lib/cn'
 
 interface ConfigPageProps {
@@ -46,19 +45,14 @@ export function ConfigPage({ onConfigured }: ConfigPageProps) {
     setTestError(null)
 
     try {
-      // 创建测试客户端
-      const client = createR2Client({
-        accountId: formData.accountId,
-        accessKeyId: formData.accessKeyId,
-        secretAccessKey: formData.secretAccessKey,
-      })
+      // 配置后端代理客户端
+      await api.configure(formData)
 
-      // 测试连接：尝试列出存储桶
-      await bucketService.listBuckets(client)
+      // 测试连接
+      await api.testConnection()
 
-      // 连接成功，保存配置
+      // 连接成功，保存配置到本地
       setCredentials(formData)
-      setDefaultClient(client)
       setConnected({ isConnected: true, lastChecked: new Date().toISOString() })
 
       // 通知父组件配置完成

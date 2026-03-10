@@ -1,7 +1,6 @@
 import { useCallback } from 'react'
 import { useBucketStore } from '@/stores/bucketStore'
 import { bucketService } from '@/services/bucketService'
-import { getDefaultClient } from '@/services/r2Client'
 import type { Bucket } from '@/types/bucket'
 
 /**
@@ -21,33 +20,24 @@ export function useBuckets() {
     removeBucket,
   } = useBucketStore()
 
-  const client = getDefaultClient()
-
   const refreshBuckets = useCallback(async () => {
-    if (!client) {
-      setError('未连接到 R2')
-      return
-    }
-
     setLoading(true)
     setError(null)
 
     try {
-      const response = await bucketService.listBuckets(client)
+      const response = await bucketService.listBuckets()
       setBuckets(response.buckets)
     } catch (err) {
       setError(err instanceof Error ? err.message : '获取桶列表失败')
     } finally {
       setLoading(false)
     }
-  }, [client, setBuckets, setLoading, setError])
+  }, [setBuckets, setLoading, setError])
 
   const createBucket = useCallback(
     async (name: string) => {
-      if (!client) return false
-
       try {
-        await bucketService.createBucket(client, name)
+        await bucketService.createBucket(name)
         addBucket({ name, creationDate: new Date().toISOString() })
         return true
       } catch (err) {
@@ -55,15 +45,13 @@ export function useBuckets() {
         return false
       }
     },
-    [client, addBucket, setError]
+    [addBucket, setError]
   )
 
   const deleteBucket = useCallback(
     async (name: string) => {
-      if (!client) return false
-
       try {
-        await bucketService.deleteBucket(client, name)
+        await bucketService.deleteBucket(name)
         removeBucket(name)
         return true
       } catch (err) {
@@ -71,7 +59,7 @@ export function useBuckets() {
         return false
       }
     },
-    [client, removeBucket, setError]
+    [removeBucket, setError]
   )
 
   return {

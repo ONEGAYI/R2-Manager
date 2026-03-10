@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { File, Folder, Checkbox } from 'lucide-react'
+import { File, Folder, Square } from 'lucide-react'
 import { formatFileSize, formatDate, getFileType } from '@/lib/utils'
 import { cn } from '@/lib/cn'
 import type { R2Object } from '@/types/file'
@@ -44,7 +44,7 @@ export function FileList({
               className="border-b hover:bg-accent/50 cursor-pointer transition-colors"
             >
               <td className="p-3">
-                <Checkbox className="pointer-events-none opacity-50" />
+                <Square className="pointer-events-none opacity-50 h-4 w-4" />
               </td>
               <td className="p-3">
                 <div className="flex items-center gap-2">

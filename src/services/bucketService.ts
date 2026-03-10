@@ -1,58 +1,44 @@
-import {
-  ListBucketsCommand,
-  CreateBucketCommand,
-  DeleteBucketCommand,
-  HeadBucketCommand,
-} from '@aws-sdk/client-s3'
-import type { S3Client } from '@aws-sdk/client-s3'
-import type { Bucket, BucketListResponse } from '@/types/bucket'
+import { api } from './api'
+import type { Bucket } from '@/types/bucket'
 
 /**
- * 存储桶服务
+ * 存储桶服务（通过后端代理）
  */
 export const bucketService = {
   /**
    * 获取所有存储桶列表
    */
-  async listBuckets(client: S3Client): Promise<BucketListResponse> {
-    const command = new ListBucketsCommand({})
-    const response = await client.send(command)
-
-    const buckets: Bucket[] = (response.Buckets || []).map((bucket) => ({
-      name: bucket.Name || '',
-      creationDate: bucket.CreationDate?.toISOString() || '',
-    }))
-
+  async listBuckets(): Promise<{ buckets: Bucket[] }> {
+    const response = await api.listBuckets()
     return {
-      buckets,
-      isTruncated: false,
+      buckets: response.buckets.map((b) => ({
+        name: b.name,
+        creationDate: b.creationDate || '',
+      })),
     }
   },
 
   /**
    * 创建存储桶
    */
-  async createBucket(client: S3Client, bucketName: string): Promise<void> {
-    const command = new CreateBucketCommand({ Bucket: bucketName })
-    await client.send(command)
+  async createBucket(bucketName: string): Promise<void> {
+    await api.createBucket(bucketName)
   },
 
   /**
-   * 删除存储桶（必须为空）
+   * 删除存储桶
    */
-  async deleteBucket(client: S3Client, bucketName: string): Promise<void> {
-    const command = new DeleteBucketCommand({ Bucket: bucketName })
-    await client.send(command)
+  async deleteBucket(bucketName: string): Promise<void> {
+    await api.deleteBucket(bucketName)
   },
 
   /**
    * 检查存储桶是否存在
    */
-  async bucketExists(client: S3Client, bucketName: string): Promise<boolean> {
+  async bucketExists(bucketName: string): Promise<boolean> {
     try {
-      const command = new HeadBucketCommand({ Bucket: bucketName })
-      await client.send(command)
-      return true
+      const { buckets } = await api.listBuckets()
+      return buckets.some((b: Bucket) => b.name === bucketName)
     } catch {
       return false
     }
