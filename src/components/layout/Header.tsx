@@ -1,4 +1,4 @@
-import { RefreshCw, Upload, FolderPlus, Grid, List, ChevronLeft, Copy, Check, Layers, Trash2, Download } from 'lucide-react'
+import { RefreshCw, Upload, FolderPlus, Grid, List, ChevronLeft, Copy, Check, Layers, Trash2, Download, Loader2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfig } from '@/hooks/useConfig'
 import { useState } from 'react'
@@ -14,7 +14,8 @@ interface HeaderProps {
   bucketName: string | null
   currentPath: string
   selectedCount: number
-  onRefresh: () => void
+  isLoading?: boolean
+  onRefresh: () => void | Promise<void>
   onUpload: () => void
   onCreateFolder: () => void
   onNavigateBack?: () => void
@@ -27,6 +28,7 @@ export function Header({
   bucketName,
   currentPath,
   selectedCount,
+  isLoading = false,
   onRefresh,
   onUpload,
   onCreateFolder,
@@ -37,6 +39,40 @@ export function Header({
 }: HeaderProps) {
   const { viewMode, setViewMode } = useConfig()
   const [copySuccess, setCopySuccess] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+
+  // 合并外部 loading 状态和内部刷新状态
+  const showLoading = isLoading || isRefreshing
+
+  // 处理刷新按钮点击
+  const handleRefresh = async () => {
+    if (showLoading) return // 防止重复点击
+
+    setIsRefreshing(true)
+    const startTime = Date.now()
+
+    try {
+      // 添加 20s 超时机制
+      const refreshPromise = onRefresh()
+      const timeoutPromise = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('刷新超时')), 20000)
+      )
+
+      await Promise.race([refreshPromise, timeoutPromise])
+    } catch (err) {
+      console.error('[Header] Refresh failed:', err)
+    } finally {
+      // 确保动画至少播放 1 秒
+      const elapsed = Date.now() - startTime
+      const remaining = Math.max(0, 1000 - elapsed)
+
+      if (remaining > 0) {
+        await new Promise(resolve => setTimeout(resolve, remaining))
+      }
+
+      setIsRefreshing(false)
+    }
+  }
 
   // 解析路径为层级数组
   const pathSegments = currentPath
@@ -214,13 +250,21 @@ export function Header({
         </motion.button>
 
         <motion.button
-          whileHover={{ rotate: 180 }}
+          whileHover={showLoading ? {} : { rotate: 180 }}
           transition={{ duration: 0.3 }}
-          onClick={onRefresh}
-          className="p-2 rounded-md hover:bg-accent"
-          title="刷新"
+          onClick={handleRefresh}
+          disabled={showLoading}
+          className={cn(
+            "p-2 rounded-md hover:bg-accent transition-colors",
+            showLoading && "cursor-not-allowed opacity-70"
+          )}
+          title={showLoading ? "加载中..." : "刷新"}
         >
-          <RefreshCw className="h-4 w-4" />
+          {showLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
         </motion.button>
 
         {/* 主题切换 */}

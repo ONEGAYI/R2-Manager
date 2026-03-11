@@ -70,6 +70,7 @@ function App() {
     prefixes,
     currentPrefix,
     selectedKeys,
+    isLoading: isFilesLoading,
     refreshFiles,
     selectKey,
     selectAll,
@@ -556,6 +557,7 @@ function App() {
               bucketName={selectedBucket}
               currentPath={currentPrefix}
               selectedCount={selectedCount}
+              isLoading={isFilesLoading}
               onRefresh={() => selectedBucket && refreshFiles(selectedBucket, currentPrefix)}
               onUpload={() => setShowUploader(true)}
               onCreateFolder={() => {
