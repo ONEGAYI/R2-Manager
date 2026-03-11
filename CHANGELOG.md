@@ -2,6 +2,46 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2026-03-12
+
+### Fixed
+- **大文件上传限制** - 修复上传超过 100MB 文件时报 `413 PayloadTooLargeError`
+  - Express `express.raw()` 中间件限制从 100MB 提升到 5GB
+  - 现在支持上传最大 5GB 的文件（R2 单文件限制）
+- **上传进度显示** - 修复上传进度秒变 100% 的问题
+  - 后端改为流式转发，前端 XHR 进度反映真实上传进度
+  - 现在显示已传大小和实时速度
+- **上传错误状态显示** - 修复上传失败时 UI 不显示错误的问题
+  - 错误任务显示红色背景和错误信息
+  - 添加关闭按钮移除错误任务
+- **传输中心 UI 布局** - 修复大小/速度文字换行问题
+  - 添加 `whitespace-nowrap` 防止文字挤到第二行
+
+### Added
+- **上传超时保护**
+  - XHR 超时设置为 60 分钟（适应大文件慢速上传）
+  - 速度过低自动取消：连续 2 分钟速度低于 10 KB/s 时自动取消上传
+- **多线程分块下载功能** - Phase 1 基础实现
+  - `src/types/chunk.ts` - 分块类型定义（ChunkInfo、ChunkDownloadResult）
+  - `src/lib/chunkManager.ts` - 分块计算逻辑（根据文件大小自动分块）
+  - `src/lib/transferLogger.ts` - 传输日志模块（任务/分块日志、进度节流）
+  - `src/services/chunkedDownload.ts` - 分块下载核心实现
+    - ChunkedDownloader 类：多线程并发下载
+    - 支持 Range 请求分块获取
+    - 自动合并分块为完整文件
+  - 后端 `server/index.js` 支持 Range 请求（206 Partial Content）
+
+### Technical
+- **分块策略**：
+  - < 10MB: 不分块（单线程）
+  - 10-50MB: 2 分块
+  - 50-200MB: 4 分块
+  - \> 200MB: 8 分块
+- **并发控制**：使用用户配置的 `maxDownloadThreads` 限制并发
+- **进度计算**：基于已下载总字节数，实时更新进度条
+
+---
+
 ## [0.7.0] - 2026-03-11
 
 ### Added
@@ -34,6 +74,12 @@ All notable changes to this project will be documented in this file.
 - 传输任务状态：pending / running / paused / completed / error
 - 任务完成后自动移动到历史记录
 - 支持并发控制的上传/下载
+
+### Fixed
+- **修复桌面端多个 Store 数据互相覆盖问题** - 每个 store 使用独立文件存储
+  - `r2-manager-config` → `config.json`
+  - `r2-manager-transfer` → `transfer.json`
+  - 支持从旧格式 `config.json` 自动拆分迁移
 
 ---
 

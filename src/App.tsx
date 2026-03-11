@@ -20,6 +20,8 @@ import { useTransferStore } from '@/stores/transferStore'
 import { api } from '@/services/api'
 import { fileService } from '@/services/fileService'
 import { initLogger } from '@/lib/logger'
+import { ChunkedDownloader, shouldUseChunkedDownload } from '@/services/chunkedDownload'
+import { transferLogger } from '@/lib/transferLogger'
 import type { UploadFile } from '@/types/file'
 import '@/styles/globals.css'
 
@@ -125,9 +127,9 @@ function App() {
     }
   }, [isConnected, refreshBuckets])
 
-  // 选择桶时加载文件
+  // 选择桶时加载文件（排除传输中心页面）
   useEffect(() => {
-    if (selectedBucket && isConnected) {
+    if (selectedBucket && isConnected && selectedBucket !== TRANSFER_PAGE_ID) {
       refreshFiles(selectedBucket, '')
     }
   }, [selectedBucket, isConnected, refreshFiles])
@@ -255,24 +257,50 @@ function App() {
         fileSize,
       })
 
+      // 获取并发配置
+      const { maxDownloadThreads } = useConfigStore.getState()
+
       // 异步执行下载
       ;(async () => {
         updateTask(taskId, { status: 'running' })
+        transferLogger.taskCreated(taskId, fileName, fileSize)
 
         try {
-          // 使用带进度的下载方法
-          const blob = await api.downloadFileWithProgress(
-            selectedBucket,
-            key,
-            (loaded, total, speed) => {
-              const progress = total > 0 ? Math.round((loaded / total) * 100) : 0
-              updateTask(taskId, { progress, loadedBytes: loaded, speed })
-            },
-            (_abortFn) => {
-              // 保存取消函数（可用于将来实现取消下载）
-              // updateTask(taskId, { abort: abortFn })
-            }
-          )
+          let blob: Blob
+
+          // 根据文件大小选择下载方式
+          if (shouldUseChunkedDownload(fileSize)) {
+            // 使用分块下载（大文件）
+            transferLogger.taskStarted(taskId, 0) // 分块数由 ChunkedDownloader 内部计算
+
+            const downloader = new ChunkedDownloader({
+              bucketName: selectedBucket,
+              key,
+              fileSize,
+              maxConcurrency: maxDownloadThreads,
+              onProgress: (loaded, total, speed) => {
+                const progress = total > 0 ? Math.round((loaded / total) * 100) : 0
+                updateTask(taskId, { progress, loadedBytes: loaded, speed })
+              },
+            })
+
+            blob = await downloader.start()
+          } else {
+            // 使用单线程下载（小文件）
+            transferLogger.usingSingleThreadMode(fileSize)
+
+            blob = await api.downloadFileWithProgress(
+              selectedBucket,
+              key,
+              (loaded, total, speed) => {
+                const progress = total > 0 ? Math.round((loaded / total) * 100) : 0
+                updateTask(taskId, { progress, loadedBytes: loaded, speed })
+              },
+              (_abortFn) => {
+                // 保存取消函数（可用于将来实现取消下载）
+              }
+            )
+          }
 
           // 下载完成，创建下载链接
           const blobUrl = URL.createObjectURL(blob)
@@ -292,6 +320,7 @@ function App() {
         } catch (error) {
           console.error('Download failed:', error)
           const errorMsg = error instanceof Error ? error.message : String(error)
+          transferLogger.taskFailed(taskId, errorMsg)
           updateTask(taskId, { status: 'error', error: errorMsg })
 
           // 3秒后移动到历史
@@ -438,8 +467,9 @@ function App() {
 
       try {
         // 执行上传，带进度回调
-        await fileService.uploadFile(bucket, key, file, (progress) => {
-          updateTask(taskId, { progress })
+        await fileService.uploadFile(bucket, key, file, (loaded, total, speed) => {
+          const progress = Math.round((loaded / total) * 100)
+          updateTask(taskId, { progress, loadedBytes: loaded, speed })
         })
 
         // 上传完成

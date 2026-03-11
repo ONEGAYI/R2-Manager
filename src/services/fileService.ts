@@ -77,7 +77,7 @@ export const fileService = {
     bucketName: string,
     key: string,
     file: File,
-    onProgress?: (progress: number) => void
+    onProgress?: (loaded: number, total: number, speed: number) => void
   ): Promise<void> {
     await api.uploadFile(bucketName, key, file, onProgress)
   },

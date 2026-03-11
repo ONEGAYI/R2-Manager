@@ -113,17 +113,54 @@ class ApiService {
     bucketName: string,
     key: string,
     file: File,
-    onProgress?: (progress: number) => void
+    onProgress?: (loaded: number, total: number, speed: number) => void
   ): Promise<{ success: boolean; key: string }> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       const url = `${API_BASE}/buckets/${bucketName}/objects/${encodeURIComponent(key)}/upload`
 
+      // 记录开始时间和已加载字节数，用于计算速度
+      let startTime = Date.now()
+      let lastLoaded = 0
+
+      // 速度过低检测
+      const LOW_SPEED_THRESHOLD = 10 * 1024 // 10 KB/s
+      const LOW_SPEED_TIMEOUT = 2 * 60 * 1000 // 2 分钟
+      let lowSpeedStartTime: number | null = null
+
+      // 检测速度过低的定时器
+      const checkLowSpeed = () => {
+        if (lowSpeedStartTime && Date.now() - lowSpeedStartTime >= LOW_SPEED_TIMEOUT) {
+          xhr.abort()
+          reject(new Error('上传速度过低，已自动取消'))
+        }
+      }
+      const lowSpeedCheckInterval = setInterval(checkLowSpeed, 5000) // 每5秒检查一次
+
       // 上传进度事件
       xhr.upload.addEventListener('progress', (e) => {
         if (e.lengthComputable && onProgress) {
-          const progress = Math.round((e.loaded / e.total) * 100)
-          onProgress(progress)
+          const now = Date.now()
+          const timeDiff = (now - startTime) / 1000 // 秒
+          const loadedDiff = e.loaded - lastLoaded
+
+          // 计算速度 (B/s)
+          const speed = timeDiff > 0 ? loadedDiff / timeDiff : 0
+
+          onProgress(e.loaded, e.total, speed)
+
+          // 速度过低检测
+          if (speed < LOW_SPEED_THRESHOLD && speed > 0) {
+            if (!lowSpeedStartTime) {
+              lowSpeedStartTime = now
+            }
+          } else {
+            lowSpeedStartTime = null // 速度恢复正常，重置计时
+          }
+
+          // 更新记录
+          lastLoaded = e.loaded
+          startTime = now
         }
       })
 
@@ -132,23 +169,40 @@ class ApiService {
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             const response = JSON.parse(xhr.responseText)
+            clearInterval(lowSpeedCheckInterval)
             resolve(response)
           } catch {
+            clearInterval(lowSpeedCheckInterval)
             reject(new Error('Invalid response'))
           }
         } else {
           try {
             const error = JSON.parse(xhr.responseText)
+            clearInterval(lowSpeedCheckInterval)
             reject(new Error(error.error || `Upload failed: ${xhr.status}`))
           } catch {
+            clearInterval(lowSpeedCheckInterval)
             reject(new Error(`Upload failed: ${xhr.status}`))
           }
         }
       })
 
       // 请求错误
-      xhr.addEventListener('error', () => reject(new Error('Network error')))
-      xhr.addEventListener('abort', () => reject(new Error('Upload aborted')))
+      xhr.addEventListener('error', () => {
+        clearInterval(lowSpeedCheckInterval)
+        reject(new Error('Network error'))
+      })
+      xhr.addEventListener('abort', () => {
+        clearInterval(lowSpeedCheckInterval)
+        reject(new Error('Upload aborted'))
+      })
+      xhr.addEventListener('timeout', () => {
+        clearInterval(lowSpeedCheckInterval)
+        reject(new Error('Upload timeout'))
+      })
+
+      // 设置超时（大文件上传需要更长时间，设置 60 分钟）
+      xhr.timeout = 60 * 60 * 1000
 
       // 发送请求
       xhr.open('POST', url)

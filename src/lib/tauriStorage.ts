@@ -40,12 +40,22 @@ async function log(level: 'info' | 'warn' | 'error', message: string): Promise<v
 
 // 配置文件存储路径
 const CONFIG_DIR = 'CloudFlareR2-Manager'
-const CONFIG_FILE = 'config.json'
 
 /**
- * 获取配置文件的完整路径
+ * 根据 store name 获取对应的文件名
+ * 例如: 'r2-manager-config' → 'config.json'
+ *       'r2-manager-transfer' → 'transfer.json'
  */
-async function getConfigPath(): Promise<string> {
+function getFileName(storeName: string): string {
+  // 移除 'r2-manager-' 前缀，添加 .json 后缀
+  const suffix = storeName.replace(/^r2-manager-/, '')
+  return `${suffix}.json`
+}
+
+/**
+ * 获取指定 store 的配置文件完整路径
+ */
+async function getConfigPath(storeName?: string): Promise<string> {
   if (!tauriPath) {
     throw new Error('Tauri path module not loaded')
   }
@@ -55,7 +65,8 @@ async function getConfigPath(): Promise<string> {
   }
   // 确保路径分隔符正确
   const separator = docDir.endsWith('/') || docDir.endsWith('\\') ? '' : '/'
-  return `${docDir}${separator}${CONFIG_DIR}/${CONFIG_FILE}`
+  const fileName = storeName ? getFileName(storeName) : 'config.json'
+  return `${docDir}${separator}${CONFIG_DIR}/${fileName}`
 }
 
 /**
@@ -99,24 +110,63 @@ async function ensureConfigDir(): Promise<void> {
 /**
  * 从 localStorage 迁移数据到文件系统
  * 仅在 Tauri 环境中且文件不存在时执行
+ *
+ * 支持两种迁移模式：
+ * 1. 新格式文件不存在时，从 localStorage 迁移
+ * 2. 旧格式 config.json 存在且包含该 store 的数据时，拆分迁移
  */
-async function migrateFromLocalStorage(storageKey: string): Promise<string | null> {
+async function migrateFromLocalStorage(storeName: string): Promise<string | null> {
   if (!isTauri() || !tauriFs) return null
 
   try {
-    const configPath = await getConfigPath()
+    const newConfigPath = await getConfigPath(storeName)
 
-    // 检查文件是否已存在
-    const fileExists = await tauriFs.exists(configPath)
-    if (fileExists) {
-      await log('info', 'Config file already exists, skip migration')
+    // 检查新格式文件是否已存在
+    const newFileExists = await tauriFs.exists(newConfigPath)
+    if (newFileExists) {
+      await log('info', `Config file already exists: ${newConfigPath}, skip migration`)
       return null
     }
 
-    // 从 localStorage 读取旧数据
-    const oldData = localStorage.getItem(storageKey)
+    // 尝试从旧格式 config.json 迁移（如果存在且包含该 store 的数据）
+    const oldConfigPath = await getConfigPath('config')
+    const oldFileExists = await tauriFs.exists(oldConfigPath)
+
+    if (oldFileExists) {
+      try {
+        const oldContent = await tauriFs.readTextFile(oldConfigPath)
+        const oldData = JSON.parse(oldContent)
+
+        // 检查旧文件是否包含当前 store 的数据
+        // 旧格式可能是直接存储的数据（config）或带 state 包装的格式
+        let storeData = null
+
+        if (oldData.state && oldData.state.history && storeName === 'r2-manager-transfer') {
+          // transfer store 数据
+          storeData = JSON.stringify({ state: { history: oldData.state.history }, version: 0 })
+        } else if (storeName === 'r2-manager-config') {
+          // config store 数据 - 排除 history 字段
+          const { history, ...configState } = oldData.state || oldData
+          if (configState.accountId || configState.theme) {
+            storeData = JSON.stringify({ state: configState, version: 0 })
+          }
+        }
+
+        if (storeData) {
+          await ensureConfigDir()
+          await tauriFs.writeTextFile(newConfigPath, storeData)
+          await log('info', `Migrated data from old config.json to ${newConfigPath}`)
+          return storeData
+        }
+      } catch (parseError) {
+        await log('warn', `Failed to parse old config.json: ${parseError}`)
+      }
+    }
+
+    // 从 localStorage 迁移
+    const oldData = localStorage.getItem(storeName)
     if (!oldData) {
-      await log('info', 'No data in localStorage to migrate')
+      await log('info', `No data in localStorage for ${storeName} to migrate`)
       return null
     }
 
@@ -124,16 +174,16 @@ async function migrateFromLocalStorage(storageKey: string): Promise<string | nul
     await ensureConfigDir()
 
     // 写入文件
-    await tauriFs.writeTextFile(configPath, oldData)
-    await log('info', `Migrated data from localStorage to file: ${configPath}`)
+    await tauriFs.writeTextFile(newConfigPath, oldData)
+    await log('info', `Migrated data from localStorage to file: ${newConfigPath}`)
 
     // 清理 localStorage 中的旧数据
-    localStorage.removeItem(storageKey)
-    await log('info', 'Cleaned up localStorage data')
+    localStorage.removeItem(storeName)
+    await log('info', `Cleaned up localStorage data for ${storeName}`)
 
     return oldData
   } catch (error) {
-    await log('error', `Migration failed: ${error}`)
+    await log('error', `Migration failed for ${storeName}: ${error}`)
     return null
   }
 }
@@ -169,6 +219,10 @@ async function ensureInitialized(): Promise<void> {
  * 根据运行环境自动选择存储后端
  *
  * Zustand v4 persist 中间件兼容版本
+ *
+ * 重要：每个 store 使用独立的文件，避免数据覆盖
+ * - r2-manager-config → config.json
+ * - r2-manager-transfer → transfer.json
  */
 export function createHybridStorage() {
   return {
@@ -193,7 +247,7 @@ export function createHybridStorage() {
           return migratedData
         }
 
-        const configPath = await getConfigPath()
+        const configPath = await getConfigPath(name)
         const fileExists = await tauriFs.exists(configPath)
 
         if (!fileExists) {
@@ -229,7 +283,7 @@ export function createHybridStorage() {
 
       try {
         await ensureConfigDir()
-        const configPath = await getConfigPath()
+        const configPath = await getConfigPath(name)
         await tauriFs.writeTextFile(configPath, value)
         await log('info', `Wrote config to: ${configPath}`)
       } catch (error) {
@@ -255,7 +309,7 @@ export function createHybridStorage() {
       }
 
       try {
-        const configPath = await getConfigPath()
+        const configPath = await getConfigPath(name)
         const fileExists = await tauriFs.exists(configPath)
 
         if (fileExists) {

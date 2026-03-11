@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { X, Pause, Play, Loader2 } from 'lucide-react'
+import { X, Pause, Play, Loader2, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { TransferTask } from '@/types/transfer'
 
@@ -35,54 +35,66 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
   const fileName = task.fileName || getFileName(task.filePath)
   const progress = task.progress || 0
   const loaded = task.loadedBytes || 0
+  const isError = task.status === 'error'
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+      className={cn(
+        "flex items-center gap-3 p-3 rounded-lg transition-colors",
+        isError ? "bg-destructive/10 border border-destructive/30" : "bg-muted/30 hover:bg-muted/50"
+      )}
     >
       {/* 文件图标和信息 */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-lg">
-            {task.direction === 'upload' ? '📤' : '📥'}
+            {isError ? '❌' : task.direction === 'upload' ? '📤' : '📥'}
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium truncate" title={fileName}>
               {fileName}
             </p>
-            <p className="text-xs text-muted-foreground">
-              {task.bucketName} · {formatSize(task.fileSize)}
-            </p>
+            {isError && task.error ? (
+              <p className="text-xs text-destructive truncate" title={task.error}>
+                {task.error}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {task.bucketName} · {formatSize(task.fileSize)}
+              </p>
+            )}
           </div>
         </div>
       </div>
 
       {/* 进度信息 */}
-      <div className="w-32 flex-shrink-0">
-        <div className="text-right">
-          <p className="text-sm font-medium">
+      <div className="flex-shrink-0 text-right min-w-[100px]">
+        {isError ? (
+          <p className="text-sm font-medium text-destructive whitespace-nowrap">上传失败</p>
+        ) : (
+          <p className="text-sm font-medium whitespace-nowrap">
             {formatSize(loaded)} / {formatSize(task.fileSize)}
           </p>
-          <p className="text-xs text-muted-foreground">
-            {formatSpeed(task.speed)}
-          </p>
-        </div>
+        )}
+        <p className="text-xs text-muted-foreground whitespace-nowrap">
+          {isError ? '点击关闭' : formatSpeed(task.speed)}
+        </p>
       </div>
 
       {/* 进度条 */}
       <div className="w-20 flex-shrink-0">
         <div className="flex items-center justify-end gap-2">
           <span className="text-sm font-medium w-10 text-right">
-            {progress}%
+            {isError ? '!' : `${progress}%`}
           </span>
           <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
             <motion.div
               className={cn(
                 "h-full rounded-full transition-all",
-                task.status === 'error' ? "bg-destructive" : "bg-primary"
+                isError ? "bg-destructive" : "bg-primary"
               )}
               initial={{ width: 0 }}
               animate={{ width: `${progress}%` }}

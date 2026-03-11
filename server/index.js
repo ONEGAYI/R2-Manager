@@ -188,16 +188,23 @@ app.get('/api/buckets/:bucketName/objects/:key(*)/url', async (req, res) => {
   }
 })
 
-// API: 代理下载文件（解决跨域下载问题）
+// API: 代理下载文件（解决跨域下载问题，支持 Range 请求）
 app.get('/api/buckets/:bucketName/objects/:key(*)/download', async (req, res) => {
   if (!r2Client) {
     return res.status(400).json({ error: '请先配置凭证' })
   }
 
   const { bucketName, key } = req.params
+  const rangeHeader = req.headers['range']
 
   try {
-    const command = new GetObjectCommand({ Bucket: bucketName, Key: key })
+    // 构建命令参数，支持 Range 请求
+    const commandParams = { Bucket: bucketName, Key: key }
+    if (rangeHeader) {
+      commandParams.Range = rangeHeader
+    }
+
+    const command = new GetObjectCommand(commandParams)
     const response = await r2Client.send(command)
 
     // 获取文件名（从 key 中提取最后一部分）
@@ -206,8 +213,22 @@ app.get('/api/buckets/:bucketName/objects/:key(*)/download', async (req, res) =>
     // 设置响应头，强制下载
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`)
     res.setHeader('Content-Type', response.ContentType || 'application/octet-stream')
-    if (response.ContentLength) {
-      res.setHeader('Content-Length', response.ContentLength)
+
+    // 处理 Range 请求响应
+    if (rangeHeader && response.ContentRange) {
+      res.status(206) // Partial Content
+      res.setHeader('Content-Range', response.ContentRange)
+      res.setHeader('Accept-Ranges', 'bytes')
+      // ContentLength 在 Range 请求时是分块大小
+      if (response.ContentLength) {
+        res.setHeader('Content-Length', response.ContentLength)
+      }
+    } else {
+      // 完整请求
+      if (response.ContentLength) {
+        res.setHeader('Content-Length', response.ContentLength)
+      }
+      res.setHeader('Accept-Ranges', 'bytes')
     }
 
     // 将流管道到响应
@@ -251,7 +272,9 @@ app.post('/api/buckets/:bucketName/objects/:key(*)/upload-url', async (req, res)
 })
 
 // API: 直接上传文件（通过后端代理，避免CORS）
-app.post('/api/buckets/:bucketName/objects/:key(*)/upload', express.raw({ type: () => true, limit: '100mb' }), async (req, res) => {
+// 支持 5GB 大文件上传（R2 单文件最大限制）
+// 使用流式转发，前端进度反映真实上传进度
+app.post('/api/buckets/:bucketName/objects/:key(*)/upload', async (req, res) => {
   if (!r2Client) {
     return res.status(400).json({ error: '请先配置凭证' })
   }
@@ -260,15 +283,17 @@ app.post('/api/buckets/:bucketName/objects/:key(*)/upload', express.raw({ type: 
 
   try {
     const contentType = req.headers['content-type'] || 'application/octet-stream'
+    const contentLength = parseInt(req.headers['content-length'] || '0', 10)
 
-    console.log('[Upload] Bucket:', bucketName, 'Key:', key, 'Size:', req.body.length, 'Type:', contentType)
+    console.log('[Upload] Bucket:', bucketName, 'Key:', key, 'Size:', contentLength, 'Type:', contentType)
 
+    // 直接使用请求流转发到 R2（流式转发）
     const command = new PutObjectCommand({
       Bucket: bucketName,
       Key: key,
-      Body: req.body,
+      Body: req, // 直接使用请求流
       ContentType: contentType,
-      ContentLength: req.body.length,
+      ContentLength: contentLength,
     })
 
     await r2Client.send(command)
