@@ -8,6 +8,9 @@ interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
   maxUploadThreads: number
   maxDownloadThreads: number
 
+  // 下载设置
+  defaultDownloadPath: string
+
   // R2 凭证操作
   setCredentials: (creds: Partial<R2Credentials>) => void
   clearCredentials: () => void
@@ -21,6 +24,7 @@ interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
   setViewMode: (mode: AppConfig['viewMode']) => void
   setDefaultBucket: (bucket?: string) => void
   setConcurrencySettings: (settings: { maxUploadThreads?: number; maxDownloadThreads?: number }) => void
+  setDownloadPath: (path: string) => void
 }
 
 const emptyCredentials: R2Credentials = {
@@ -39,6 +43,7 @@ type PersistedConfigState = {
   defaultBucket: string | undefined
   maxUploadThreads: number
   maxDownloadThreads: number
+  defaultDownloadPath: string
 }
 
 export const useConfigStore = create<ConfigState>()(
@@ -53,6 +58,8 @@ export const useConfigStore = create<ConfigState>()(
       // 并发设置
       maxUploadThreads: 4,
       maxDownloadThreads: 4,
+      // 下载设置
+      defaultDownloadPath: '',
 
       // R2 凭证操作
       setCredentials: (creds) =>
@@ -84,6 +91,7 @@ export const useConfigStore = create<ConfigState>()(
       setViewMode: (viewMode) => set({ viewMode }),
       setDefaultBucket: (defaultBucket) => set({ defaultBucket }),
       setConcurrencySettings: (settings) => set((state) => ({ ...state, ...settings })),
+      setDownloadPath: (defaultDownloadPath) => set({ defaultDownloadPath }),
     }),
     {
       name: 'r2-manager-config',
@@ -98,6 +106,7 @@ export const useConfigStore = create<ConfigState>()(
         defaultBucket: state.defaultBucket,
         maxUploadThreads: state.maxUploadThreads,
         maxDownloadThreads: state.maxDownloadThreads,
+        defaultDownloadPath: state.defaultDownloadPath,
       }),
     }
   )

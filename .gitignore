@@ -37,6 +37,9 @@ dist-ssr
 localStorage.json
 r2-credentials.json
 
+# Scripts config (包含 R2 凭证)
+scripts/etag.config.json
+
 # Claude Code
 .claude/
 

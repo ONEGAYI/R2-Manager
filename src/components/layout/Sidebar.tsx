@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Database, Settings, Plus, MoreVertical, Trash2, Sun, Moon, Monitor } from 'lucide-react'
+import { Database, Settings, Plus, MoreVertical, Trash2, Sun, Moon, Monitor, Radio } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { cn } from '@/lib/cn'
 import { useThemeStore } from '@/stores/themeStore'
+import { useTransferStore } from '@/stores/transferStore'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +11,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { DeleteBucketDialog } from '@/components/bucket/DeleteBucketDialog'
+
+// 传输中心特殊标识符
+export const TRANSFER_PAGE_ID = '__transfer__'
 
 interface SidebarProps {
   buckets: string[]
@@ -29,7 +33,10 @@ export function Sidebar({
   onDeleteBucket,
 }: SidebarProps) {
   const { theme, setTheme } = useThemeStore()
+  const { getActiveCount } = useTransferStore()
   const [deleteBucketName, setDeleteBucketName] = useState<string | null>(null)
+
+  const activeTransferCount = getActiveCount()
 
   const handleDeleteBucket = async (name: string): Promise<boolean> => {
     if (!onDeleteBucket) return false
@@ -119,6 +126,36 @@ export function Sidebar({
               ))
             )}
           </nav>
+
+          {/* 传输入口 */}
+          <div className="mt-4 pt-4 border-t border-border/50">
+            <motion.button
+              whileHover={{ x: 4 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => onSelectBucket(TRANSFER_PAGE_ID)}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md transition-colors',
+                selectedBucket === TRANSFER_PAGE_ID
+                  ? 'bg-primary text-primary-foreground'
+                  : 'hover:bg-accent text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Radio className="h-4 w-4" />
+              <span className="flex-1 text-left">传输</span>
+              {activeTransferCount > 0 && (
+                <span
+                  className={cn(
+                    'min-w-[20px] h-5 flex items-center justify-center rounded-full text-xs font-medium px-1.5',
+                    selectedBucket === TRANSFER_PAGE_ID
+                      ? 'bg-primary-foreground/20 text-primary-foreground'
+                      : 'bg-primary text-primary-foreground'
+                  )}
+                >
+                  {activeTransferCount}
+                </span>
+              )}
+            </motion.button>
+          </div>
         </div>
 
         {/* 底部操作 */}

@@ -10,12 +10,16 @@ import { Loading } from '@/components/common/Loading'
 import { ConfigPage } from '@/components/config/ConfigPage'
 import { SettingsDialog } from '@/components/config/SettingsDialog'
 import { CreateBucket } from '@/components/bucket/CreateBucket'
+import { TransferPage } from '@/components/transfer'
+import { TRANSFER_PAGE_ID } from '@/components/layout/Sidebar'
 import { useBuckets } from '@/hooks/useBuckets'
 import { useConfig } from '@/hooks/useConfig'
 import { useFiles } from '@/hooks/useFiles'
 import { useConfigStore } from '@/stores/configStore'
+import { useTransferStore } from '@/stores/transferStore'
 import { api } from '@/services/api'
 import { fileService } from '@/services/fileService'
+import { initLogger } from '@/lib/logger'
 import type { UploadFile } from '@/types/file'
 import '@/styles/globals.css'
 
@@ -23,18 +27,19 @@ import '@/styles/globals.css'
 async function runWithConcurrency<T>(
   items: T[],
   concurrency: number,
-  taskFn: (item: T) => Promise<void>
+  taskFn: (item: T, index: number) => Promise<void>
 ): Promise<void> {
   const executing: Set<Promise<void>> = new Set()
 
-  for (const item of items) {
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
     // 如果已达到并发上限，等待任意一个任务完成
     if (executing.size >= concurrency) {
       await Promise.race(executing)
     }
 
     // 创建任务并添加到执行集合
-    const promise = taskFn(item).finally(() => {
+    const promise = taskFn(item, i).finally(() => {
       executing.delete(promise)
     })
     executing.add(promise)
@@ -80,11 +85,23 @@ function App() {
     maxDownloadThreads,
   } = useConfigStore()
 
+  const {
+    addTask,
+    updateTask,
+    moveToHistory,
+    getTaskById,
+  } = useTransferStore()
+
   // 检查是否有有效凭证
   const hasValidCredentials = hasCredentials()
 
   // 选中项数量
   const selectedCount = selectedKeys.size
+
+  // 初始化日志系统（仅 Tauri 环境）
+  useEffect(() => {
+    initLogger()
+  }, [])
 
   // 初始化 API 客户端
   useEffect(() => {
@@ -224,16 +241,70 @@ function App() {
     (key: string) => {
       if (!selectedBucket) return
 
-      // 使用代理下载端点，避免跨域问题
-      const url = api.getProxyDownloadUrl(selectedBucket, key)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = key.split('/').pop() || 'download'
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
+      // 获取文件信息
+      const fileObj = objects.find((obj) => obj.key === key)
+      const fileSize = fileObj?.size || 0
+      const fileName = key.split('/').pop() || 'download'
+
+      // 创建下载任务
+      const taskId = addTask({
+        direction: 'download',
+        fileName,
+        filePath: key,
+        bucketName: selectedBucket,
+        fileSize,
+      })
+
+      // 异步执行下载
+      ;(async () => {
+        updateTask(taskId, { status: 'running' })
+
+        try {
+          // 使用带进度的下载方法
+          const blob = await api.downloadFileWithProgress(
+            selectedBucket,
+            key,
+            (loaded, total, speed) => {
+              const progress = total > 0 ? Math.round((loaded / total) * 100) : 0
+              updateTask(taskId, { progress, loadedBytes: loaded, speed })
+            },
+            (_abortFn) => {
+              // 保存取消函数（可用于将来实现取消下载）
+              // updateTask(taskId, { abort: abortFn })
+            }
+          )
+
+          // 下载完成，创建下载链接
+          const blobUrl = URL.createObjectURL(blob)
+          const a = document.createElement('a')
+          a.href = blobUrl
+          a.download = fileName
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(blobUrl)
+
+          // 移动到历史记录
+          const task = getTaskById(taskId)
+          if (task) {
+            moveToHistory(task, 'completed')
+          }
+        } catch (error) {
+          console.error('Download failed:', error)
+          const errorMsg = error instanceof Error ? error.message : String(error)
+          updateTask(taskId, { status: 'error', error: errorMsg })
+
+          // 3秒后移动到历史
+          setTimeout(() => {
+            const task = getTaskById(taskId)
+            if (task) {
+              moveToHistory(task, 'error', errorMsg)
+            }
+          }, 3000)
+        }
+      })()
     },
-    [selectedBucket]
+    [selectedBucket, objects, addTask, updateTask, getTaskById, moveToHistory]
   )
 
   // 处理批量删除
@@ -269,26 +340,68 @@ function App() {
 
     const keys = Array.from(selectedKeys)
 
+    // 创建下载任务并收集任务 ID
+    const taskIds: string[] = []
+    for (const key of keys) {
+      const fileObj = objects.find((obj) => obj.key === key)
+      const fileSize = fileObj?.size || 0
+      const fileName = key.split('/').pop() || 'download'
+
+      const taskId = addTask({
+        direction: 'download',
+        fileName,
+        filePath: key,
+        bucketName: selectedBucket,
+        fileSize,
+      })
+      taskIds.push(taskId)
+    }
+
     // 使用并发限制下载
-    await runWithConcurrency(keys, maxDownloadThreads, async (key) => {
-      const url = api.getProxyDownloadUrl(selectedBucket, key)
+    await runWithConcurrency(keys, maxDownloadThreads, async (key, index) => {
+      const taskId = taskIds[index]
       const filename = key.split('/').pop() || 'download'
 
+      updateTask(taskId, { status: 'running' })
+
       try {
-        const response = await fetch(url)
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const blob = await response.blob()
+        const blob = await api.downloadFileWithProgress(
+          selectedBucket,
+          key,
+          (loaded, total, speed) => {
+            const progress = total > 0 ? Math.round((loaded / total) * 100) : 0
+            updateTask(taskId, { progress, loadedBytes: loaded, speed })
+          }
+        )
+
+        // 下载完成，触发浏览器下载
         const blobUrl = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = blobUrl
         a.download = filename
         a.click()
         URL.revokeObjectURL(blobUrl)
+
+        // 移动到历史记录
+        const task = getTaskById(taskId)
+        if (task) {
+          moveToHistory(task, 'completed')
+        }
       } catch (error) {
         console.error(`下载失败: ${filename}`, error)
+        const errorMsg = error instanceof Error ? error.message : String(error)
+        updateTask(taskId, { status: 'error', error: errorMsg })
+
+        // 3秒后移动到历史
+        setTimeout(() => {
+          const task = getTaskById(taskId)
+          if (task) {
+            moveToHistory(task, 'error', errorMsg)
+          }
+        }, 3000)
       }
     })
-  }, [selectedBucket, selectedKeys, selectedCount, maxDownloadThreads])
+  }, [selectedBucket, selectedKeys, selectedCount, maxDownloadThreads, objects, addTask, updateTask, getTaskById, moveToHistory])
 
   // 处理文件上传
   const handleUpload = useCallback((files: File[]) => {
@@ -298,63 +411,69 @@ function App() {
       return
     }
 
-    // 创建上传任务
-    const newUploads: UploadFile[] = files.map((file) => ({
-      id: `${Date.now()}-${file.name}`,
-      file,
-      progress: 0,
-      status: 'pending' as const,
-    }))
-
-    console.log('Creating upload tasks:', newUploads)
-    setUploads((prev) => [...prev, ...newUploads])
-
-    // 使用并发限制上传
     const bucket = selectedBucket
     const prefix = currentPrefix
 
-    runWithConcurrency(newUploads, maxUploadThreads, async (upload) => {
-      // 更新状态为上传中
-      setUploads((prev) =>
-        prev.map((u) =>
-          u.id === upload.id ? { ...u, status: 'uploading', progress: 0 } : u
-        )
-      )
-
-      // 计算上传路径
-      const key = prefix + upload.file.name
-      console.log('Upload key:', key, 'to bucket:', bucket)
-
-      // 执行上传，带进度回调
-      await fileService.uploadFile(bucket, key, upload.file, (progress) => {
-        setUploads((prev) =>
-          prev.map((u) =>
-            u.id === upload.id ? { ...u, progress } : u
-          )
-        )
+    // 创建上传任务并添加到传输中心
+    const newTaskIds: string[] = []
+    for (const file of files) {
+      const taskId = addTask({
+        direction: 'upload',
+        fileName: file.name,
+        filePath: prefix + file.name,
+        bucketName: bucket,
+        fileSize: file.size,
+        file,
       })
+      newTaskIds.push(taskId)
+    }
 
-      // 上传完成
-      console.log('Upload completed:', upload.file.name)
-      setUploads((prev) =>
-        prev.map((u) =>
-          u.id === upload.id ? { ...u, status: 'completed', progress: 100 } : u
-        )
-      )
-      // 刷新文件列表
-      refreshFiles(bucket, prefix)
-    }).catch((error) => {
-      console.error('Upload failed:', error)
-      // 标记失败的任务
-      setUploads((prev) =>
-        prev.map((u) =>
-          newUploads.some((nu) => nu.id === u.id) && u.status === 'uploading'
-            ? { ...u, status: 'error', error: error.message }
-            : u
-        )
-      )
+    // 使用并发限制上传
+    runWithConcurrency(files, maxUploadThreads, async (file) => {
+      const key = prefix + file.name
+      const taskId = newTaskIds[files.indexOf(file)]
+
+      // 更新状态为上传中
+      updateTask(taskId, { status: 'running' })
+
+      try {
+        // 执行上传，带进度回调
+        await fileService.uploadFile(bucket, key, file, (progress) => {
+          updateTask(taskId, { progress })
+        })
+
+        // 上传完成
+        console.log('Upload completed:', file.name)
+
+        // 获取当前任务状态
+        const task = getTaskById(taskId)
+        if (task) {
+          // 移动到历史记录
+          moveToHistory(task, 'completed')
+        }
+
+        // 刷新文件列表
+        refreshFiles(bucket, prefix)
+      } catch (error) {
+        console.error('Upload failed:', error)
+
+        // 获取当前任务状态
+        const task = getTaskById(taskId)
+        if (task) {
+          // 更新任务状态为错误
+          const errorMsg = error instanceof Error ? error.message : String(error)
+          updateTask(taskId, { status: 'error', error: errorMsg })
+          // 3秒后移动到历史
+          setTimeout(() => {
+            const currentTask = getTaskById(taskId)
+            if (currentTask) {
+              moveToHistory(currentTask, 'error', errorMsg)
+            }
+          }, 3000)
+        }
+      }
     })
-  }, [selectedBucket, currentPrefix, refreshFiles, maxUploadThreads])
+  }, [selectedBucket, currentPrefix, refreshFiles, maxUploadThreads, addTask, updateTask, moveToHistory, getTaskById])
 
   // 移除上传项
   const handleUploadRemove = useCallback((id: string) => {
@@ -398,86 +517,93 @@ function App() {
         onCreateBucket={() => setShowCreateBucket(true)}
         onDeleteBucket={handleDeleteBucket}
       >
-        <Header
-          bucketName={selectedBucket}
-          currentPath={currentPrefix}
-          selectedCount={selectedCount}
-          onRefresh={() => selectedBucket && refreshFiles(selectedBucket, currentPrefix)}
-          onUpload={() => setShowUploader(true)}
-          onCreateFolder={() => {
-            setFolderName('')
-            setShowCreateFolder(true)
-          }}
-          onNavigateBack={() => {
-            if (selectedBucket && currentPrefix) {
-              // 返回上一级
-              const parts = currentPrefix.split('/').filter(Boolean)
-              parts.pop()
-              const parentPrefix = parts.length > 0 ? parts.join('/') + '/' : ''
-              refreshFiles(selectedBucket, parentPrefix)
-            }
-          }}
-          onNavigateTo={(prefix: string) => {
-            if (selectedBucket) {
-              refreshFiles(selectedBucket, prefix)
-            }
-          }}
-          onBatchDelete={handleBatchDelete}
-          onBatchDownload={handleBatchDownload}
-        />
+        {/* 传输页面或文件列表 */}
+        {selectedBucket === TRANSFER_PAGE_ID ? (
+          <TransferPage />
+        ) : (
+          <>
+            <Header
+              bucketName={selectedBucket}
+              currentPath={currentPrefix}
+              selectedCount={selectedCount}
+              onRefresh={() => selectedBucket && refreshFiles(selectedBucket, currentPrefix)}
+              onUpload={() => setShowUploader(true)}
+              onCreateFolder={() => {
+                setFolderName('')
+                setShowCreateFolder(true)
+              }}
+              onNavigateBack={() => {
+                if (selectedBucket && currentPrefix) {
+                  // 返回上一级
+                  const parts = currentPrefix.split('/').filter(Boolean)
+                  parts.pop()
+                  const parentPrefix = parts.length > 0 ? parts.join('/') + '/' : ''
+                  refreshFiles(selectedBucket, parentPrefix)
+                }
+              }}
+              onNavigateTo={(prefix: string) => {
+                if (selectedBucket) {
+                  refreshFiles(selectedBucket, prefix)
+                }
+              }}
+              onBatchDelete={handleBatchDelete}
+              onBatchDownload={handleBatchDownload}
+            />
 
-        <AnimatePresence mode="wait">
-          {isLoading || deleting ? (
-            <Loading key="loading" />
-          ) : !selectedBucket ? (
-            <Empty
-              key="empty-bucket"
-              message="请选择一个存储桶"
-              description="从左侧列表选择或创建新的存储桶"
-            />
-          ) : objects.length === 0 && prefixes.length === 0 ? (
-            <Empty
-              key="empty-files"
-              message="存储桶为空"
-              description="上传文件开始使用"
-            />
-          ) : viewMode === 'grid' ? (
-            <motion.div
-              key="grid"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <FileGrid
-                objects={objects}
-                prefixes={prefixes}
-                selectedKeys={selectedKeys}
-                onSelect={selectKey}
-                onOpenFolder={handleOpenFolder}
-                onOpenFile={handleOpenFile}
-              />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="list"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <FileList
-                objects={objects}
-                prefixes={prefixes}
-                selectedKeys={selectedKeys}
-                onSelect={selectKey}
-                onSelectAll={handleSelectAll}
-                onOpenFolder={handleOpenFolder}
-                onOpenFile={handleOpenFile}
-                onDelete={handleDelete}
-                onDownload={handleDownload}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+            <AnimatePresence mode="wait">
+              {isLoading || deleting ? (
+                <Loading key="loading" />
+              ) : !selectedBucket ? (
+                <Empty
+                  key="empty-bucket"
+                  message="请选择一个存储桶"
+                  description="从左侧列表选择或创建新的存储桶"
+                />
+              ) : objects.length === 0 && prefixes.length === 0 ? (
+                <Empty
+                  key="empty-files"
+                  message="存储桶为空"
+                  description="上传文件开始使用"
+                />
+              ) : viewMode === 'grid' ? (
+                <motion.div
+                  key="grid"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <FileGrid
+                    objects={objects}
+                    prefixes={prefixes}
+                    selectedKeys={selectedKeys}
+                    onSelect={selectKey}
+                    onOpenFolder={handleOpenFolder}
+                    onOpenFile={handleOpenFile}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="list"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <FileList
+                    objects={objects}
+                    prefixes={prefixes}
+                    selectedKeys={selectedKeys}
+                    onSelect={selectKey}
+                    onSelectAll={handleSelectAll}
+                    onOpenFolder={handleOpenFolder}
+                    onOpenFile={handleOpenFile}
+                    onDelete={handleDelete}
+                    onDownload={handleDownload}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </>
+        )}
 
         {/* 上传对话框 */}
         <AnimatePresence>

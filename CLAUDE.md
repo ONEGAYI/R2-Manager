@@ -57,12 +57,13 @@ cloudflare-r2-manager/
 │   │   ├── 📁 config/                # 配置组件 (ConfigPage, SettingsDialog)
 │   │   ├── 📁 bucket/                # 桶操作组件 (CreateBucket, DeleteBucketDialog)
 │   │   ├── 📁 file/                  # 文件操作组件 (FileList, FileGrid, FileUploader, FilePreview)
+│   │   ├── 📁 transfer/              # 传输中心组件 (TransferPage, TaskList, HistoryList)
 │   │   └── 📁 common/                # 通用组件 (Loading, Empty, ThemeProvider, ThemeToggle)
 │   ├── 📁 hooks/                     # 自定义 Hooks (useConfig, useBuckets, useFiles, useUpload)
 │   ├── 📁 services/                  # API 服务层 (api, bucketService, fileService)
-│   ├── 📁 stores/                    # Zustand 状态 (configStore, bucketStore, fileStore)
-│   ├── 📁 types/                     # TypeScript 类型 (config, bucket, file)
-│   ├── 📁 lib/                       # 工具库 (cn, utils, isTauri, tauriStorage)
+│   ├── 📁 stores/                    # Zustand 状态 (configStore, bucketStore, fileStore, transferStore)
+│   ├── 📁 types/                     # TypeScript 类型 (config, bucket, file, transfer)
+│   ├── 📁 lib/                       # 工具库 (cn, utils, isTauri, logger, tauriStorage)
 │   ├── 📁 styles/                    # 全局样式
 │   ├── App.tsx                       # 主应用
 │   └── main.tsx                      # 入口文件
@@ -157,14 +158,22 @@ cloudflare-r2-manager/
 - [x] 批量操作（删除、下载）
 - [x] 全选功能
 - [x] 文件上传进度（XHR 实现）
-- [x] 文件下载进度
+- [x] 文件下载进度（传输中心页面）
 - [x] 新建文件夹
 - [x] 创建存储桶
 - [x] 删除存储桶（输入桶名确认）
 - [ ] 文件预览功能
+- [x] **传输中心** - 类似百度网盘的传输管理页面
+  - [x] 上传/下载任务实时进度追踪
+  - [x] 传输速度显示
+  - [x] 历史记录管理
+  - [x] 任务标签分类（上传中/下载中/已完成）
 
 ### Phase 3: 体验优化
 - [x] 深色模式（浅色/深色/跟随系统三种模式）
+- [x] 传输中心进度反馈（实时进度条、速度显示）
+- [ ] 暂停/恢复传输
+- [ ] 断点续传
 - [ ] 响应式布局、面包屑导航布局优化
 - [ ] 键盘快捷键
 - [ ] 拖拽上传

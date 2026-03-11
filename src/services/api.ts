@@ -204,6 +204,71 @@ class ApiService {
       method: 'POST',
     })
   }
+
+  // 下载文件（带进度回调，使用 XHR）
+  downloadFileWithProgress(
+    bucketName: string,
+    key: string,
+    onProgress?: (loaded: number, total: number, speed: number) => void,
+    onAbort?: (abortFn: () => void) => void
+  ): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      const url = `${API_BASE}/buckets/${bucketName}/objects/${encodeURIComponent(key)}/download`
+
+      // 记录开始时间和已加载字节数，用于计算速度
+      let startTime = Date.now()
+      let lastLoaded = 0
+
+      // 下载进度事件
+      xhr.addEventListener('progress', (e) => {
+        if (e.lengthComputable && onProgress) {
+          const now = Date.now()
+          const timeDiff = (now - startTime) / 1000 // 秒
+          const loadedDiff = e.loaded - lastLoaded
+
+          // 计算速度 (B/s)
+          const speed = timeDiff > 0 ? loadedDiff / timeDiff : 0
+
+          onProgress(e.loaded, e.total, speed)
+
+          // 更新记录
+          lastLoaded = e.loaded
+          startTime = now
+        }
+      })
+
+      // 请求完成
+      xhr.addEventListener('load', () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const blob = xhr.response
+          if (blob instanceof Blob) {
+            resolve(blob)
+          } else {
+            reject(new Error('Invalid response type'))
+          }
+        } else {
+          reject(new Error(`Download failed: ${xhr.status}`))
+        }
+      })
+
+      // 请求错误
+      xhr.addEventListener('error', () => reject(new Error('Network error')))
+      xhr.addEventListener('abort', () => reject(new Error('Download aborted')))
+
+      // 设置响应类型为 blob
+      xhr.responseType = 'blob'
+
+      // 发送请求
+      xhr.open('GET', url)
+      xhr.send()
+
+      // 提供中止函数
+      if (onAbort) {
+        onAbort(() => xhr.abort())
+      }
+    })
+  }
 }
 
 export const api = new ApiService()

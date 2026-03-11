@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2026-03-11
+
+### Added
+- **传输中心功能** - 类似百度网盘的传输管理页面
+  - `src/types/transfer.ts` - 传输任务类型定义
+  - `src/stores/transferStore.ts` - 传输状态管理（任务、历史记录）
+  - `src/components/transfer/` - 传输中心UI组件
+    - `TransferPage.tsx` - 传输页面主组件
+    - `TransferTabs.tsx` - 标签页切换（上传中/下载中/已完成）
+    - `TaskList.tsx` / `TaskItem.tsx` - 进行中任务列表
+    - `HistoryList.tsx` / `HistoryItem.tsx` - 历史记录列表
+  - Sidebar 添加"传输"入口，显示活跃任务数量徽章
+  - 历史记录持久化（最近100条）
+
+- **下载进度追踪**
+  - `api.downloadFileWithProgress()` - XHR 实现带进度回调的下载
+  - 单文件下载和批量下载均支持实时进度显示
+  - 下载速度计算和显示
+
+- **上传进度优化**
+  - 重构 `handleUpload` 使用 transferStore
+  - 重构 `handleDownload` 和 `handleBatchDownload` 使用 transferStore
+  - 统一的上传/下载任务管理
+
+### Changed
+- `runWithConcurrency` 函数新增 `index` 参数支持任务索引追踪
+- 设置对话框"并发"标签改为"传输"标签
+
+### Technical
+- 传输任务状态：pending / running / paused / completed / error
+- 任务完成后自动移动到历史记录
+- 支持并发控制的上传/下载
+
+---
+
 ## [0.6.2] - 2026-03-11
 
 ### Added

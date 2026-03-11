@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Key, Eye, EyeOff, Loader2, Trash2, CheckCircle, RefreshCw, Settings2, ShieldAlert } from 'lucide-react'
+import { Key, Eye, EyeOff, Loader2, Trash2, CheckCircle, RefreshCw, Settings2, ShieldAlert, FolderOpen } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { useConfigStore } from '@/stores/configStore'
 import { api } from '@/services/api'
 import { cn } from '@/lib/cn'
+import { isTauri } from '@/lib/isTauri'
 
 type SettingsTab = 'credentials' | 'concurrency' | 'system' | 'danger'
 
@@ -23,7 +24,7 @@ interface TabItem {
 
 const tabs: TabItem[] = [
   { id: 'credentials', label: '凭证', icon: <Key className="w-4 h-4" /> },
-  { id: 'concurrency', label: '并发', icon: <Settings2 className="w-4 h-4" /> },
+  { id: 'concurrency', label: '传输', icon: <Settings2 className="w-4 h-4" /> },
   { id: 'system', label: '系统', icon: <RefreshCw className="w-4 h-4" /> },
   { id: 'danger', label: '危险', icon: <ShieldAlert className="w-4 h-4" /> },
 ]
@@ -45,10 +46,12 @@ export function SettingsDialog({
     secretAccessKey,
     maxUploadThreads,
     maxDownloadThreads,
+    defaultDownloadPath,
     setCredentials,
     clearCredentials,
     setConnected,
     setConcurrencySettings,
+    setDownloadPath,
   } = useConfigStore()
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('credentials')
@@ -60,6 +63,7 @@ export function SettingsDialog({
   const [concurrencyData, setConcurrencyData] = useState({
     maxUploadThreads,
     maxDownloadThreads,
+    defaultDownloadPath,
   })
 
   // 同步 store 中的并发设置到本地状态
@@ -67,8 +71,9 @@ export function SettingsDialog({
     setConcurrencyData({
       maxUploadThreads,
       maxDownloadThreads,
+      defaultDownloadPath,
     })
-  }, [maxUploadThreads, maxDownloadThreads])
+  }, [maxUploadThreads, maxDownloadThreads, defaultDownloadPath])
 
   const [showSecret, setShowSecret] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -106,7 +111,11 @@ export function SettingsDialog({
 
   const handleSave = async () => {
     setCredentials(formData)
-    setConcurrencySettings(concurrencyData)
+    setConcurrencySettings({
+      maxUploadThreads: concurrencyData.maxUploadThreads,
+      maxDownloadThreads: concurrencyData.maxDownloadThreads,
+    })
+    setDownloadPath(concurrencyData.defaultDownloadPath)
 
     await api.configure(formData)
     setConnected({ isConnected: true, lastChecked: new Date().toISOString() })
@@ -269,6 +278,55 @@ export function SettingsDialog({
       <p className="text-xs text-muted-foreground">
         限制同时上传/下载的文件数量（1-10），较高的值可能会增加系统负载
       </p>
+
+      {/* 下载路径配置 */}
+      <div className="space-y-1.5">
+        <label className="text-xs text-muted-foreground">默认下载路径</label>
+        {isTauri() ? (
+          <div className="flex gap-2">
+            <Input
+              value={concurrencyData.defaultDownloadPath || ''}
+              onChange={(e) =>
+                setConcurrencyData((prev) => ({
+                  ...prev,
+                  defaultDownloadPath: e.target.value,
+                }))
+              }
+              placeholder="~/Downloads"
+              className="font-mono text-sm flex-1"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                // Tauri 文件夹选择器
+                try {
+                  const { open } = await import('@tauri-apps/plugin-dialog')
+                  const selected = await open({
+                    directory: true,
+                    multiple: false,
+                    title: '选择下载路径',
+                  })
+                  if (selected) {
+                    setConcurrencyData((prev) => ({
+                      ...prev,
+                      defaultDownloadPath: selected as string,
+                    }))
+                  }
+                } catch (error) {
+                  console.error('Failed to open folder picker:', error)
+                }
+              }}
+            >
+              <FolderOpen className="w-4 h-4" />
+            </Button>
+          </div>
+        ) : (
+          <div className="p-3 rounded-md bg-muted/30 text-sm text-muted-foreground">
+            浏览器端使用系统默认下载路径
+          </div>
+        )}
+      </div>
 
       <div className="flex justify-end">
         <Button size="sm" onClick={handleSave}>
