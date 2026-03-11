@@ -1,0 +1,38 @@
+# ==========================================
+# Windows 配置
+# ==========================================
+# Rust 在 Windows 下自带了 rust-lld.exe，无需额外安装任何东西，开箱即用！
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
+
+# 如果你在 Windows 下编译 ARM 架构版本（比较少见），也可以加上这个
+[target.aarch64-pc-windows-msvc]
+linker = "rust-lld.exe"
+
+
+# ==========================================
+# macOS 配置
+# ==========================================
+# 前提：需要通过 Homebrew 安装 lld (在终端运行: brew install lld)
+
+# Apple Silicon (M1/M2/M3 等 M 系列芯片)
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+# Intel 芯片的 Mac
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+
+# ==========================================
+# Linux 配置
+# ==========================================
+# 前提：需要通过包管理器安装 lld (例如 Ubuntu 运行: sudo apt install lld clang)
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+# 【进阶玩家可选】：如果你在 Linux 下想用目前地表最快的 mold 链接器
+# 1. 安装 mold (sudo apt install mold) 和 clang
+# 2. 注释掉上面那行 rustflags，然后把下面两行的注释打开：
+# linker = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]

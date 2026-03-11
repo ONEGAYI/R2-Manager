@@ -40,10 +40,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/server"],
+    "externalBin": ["binaries/r2-proxy-server"],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerHooks": "./nsis/installer.nsi"
       }
     }
   },

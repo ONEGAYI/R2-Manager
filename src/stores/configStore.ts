@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import { persist, createJSONStorage } from 'zustand/middleware'
+import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
 import type { AppConfig, R2Credentials, ConnectionStatus } from '@/types/config'
+import { createHybridStorage } from '@/lib/tauriStorage'
 
 interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
   // 并发设置
@@ -26,6 +27,18 @@ const emptyCredentials: R2Credentials = {
   accountId: '',
   accessKeyId: '',
   secretAccessKey: '',
+}
+
+// 需要持久化的状态类型
+type PersistedConfigState = {
+  accountId: string
+  accessKeyId: string
+  secretAccessKey: string
+  theme: AppConfig['theme']
+  viewMode: AppConfig['viewMode']
+  defaultBucket: string | undefined
+  maxUploadThreads: number
+  maxDownloadThreads: number
 }
 
 export const useConfigStore = create<ConfigState>()(
@@ -74,9 +87,9 @@ export const useConfigStore = create<ConfigState>()(
     }),
     {
       name: 'r2-manager-config',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => createHybridStorage() as StateStorage),
       // 不持久化连接状态
-      partialize: (state) => ({
+      partialize: (state): PersistedConfigState => ({
         accountId: state.accountId,
         accessKeyId: state.accessKeyId,
         secretAccessKey: state.secretAccessKey,

@@ -9,7 +9,7 @@
 - **桌面端**: Tauri v2 (使用系统 WebView2)
 - **样式**: Tailwind CSS + shadcn/ui
 - **动效**: Framer Motion
-- **状态**: Zustand (带 localStorage 持久化)
+- **状态**: Zustand (浏览器端 localStorage / 桌面端文件系统持久化)
 - **API**: AWS S3 SDK (兼容 R2)
 
 ## 架构
@@ -62,7 +62,7 @@ cloudflare-r2-manager/
 │   ├── 📁 services/                  # API 服务层 (api, bucketService, fileService)
 │   ├── 📁 stores/                    # Zustand 状态 (configStore, bucketStore, fileStore)
 │   ├── 📁 types/                     # TypeScript 类型 (config, bucket, file)
-│   ├── 📁 lib/                       # 工具库 (cn, utils)
+│   ├── 📁 lib/                       # 工具库 (cn, utils, isTauri, tauriStorage)
 │   ├── 📁 styles/                    # 全局样式
 │   ├── App.tsx                       # 主应用
 │   └── main.tsx                      # 入口文件
@@ -73,8 +73,10 @@ cloudflare-r2-manager/
 │
 ├── 📁 src-tauri/                     # Tauri 桌面端配置
 │   ├── 📁 src/main.rs                # Rust 入口文件（v2 API）
+│   ├── 📁 capabilities/              # Tauri v2 权限配置
+│   │   └── default.json              # 文件系统、Shell 等权限
 │   ├── 📁 binaries/                  # Sidecar 可执行文件
-│   │   └── server-x86_64-pc-windows-msvc.exe  # Express 服务端
+│   │   └── r2-proxy-server-x86_64-pc-windows-msvc.exe  # Express 代理服务端
 │   ├── 📁 icons/                     # 应用图标
 │   ├── tauri.conf.json               # Tauri v2 配置
 │   ├── Cargo.toml                    # Rust 依赖（独立插件）
@@ -89,6 +91,18 @@ cloudflare-r2-manager/
 ```
 
 ## 重要功能
+
+### 配置存储
+
+应用配置会根据运行环境自动选择存储方式：
+
+| 环境 | 存储位置 | 说明 |
+|------|----------|------|
+| 浏览器 | localStorage | 随浏览器缓存 |
+| 桌面端 | `{Documents}/CloudFlareR2-Manager/config.json` | 持久化存储，更新不丢失 |
+
+- **自动迁移**: 首次在桌面端运行时，会自动将 localStorage 数据迁移到文件系统
+- **备份**: 用户可手动备份 Documents 目录下的配置文件
 
 ### 重启服务
 
@@ -151,7 +165,7 @@ cloudflare-r2-manager/
 
 ### Phase 3: 体验优化
 - [x] 深色模式（浅色/深色/跟随系统三种模式）
-- [ ] 响应式布局
+- [ ] 响应式布局、面包屑导航布局优化
 - [ ] 键盘快捷键
 - [ ] 拖拽上传
 - [ ] 性能优化
@@ -159,6 +173,7 @@ cloudflare-r2-manager/
 
 ### Phase 4: 高级功能
 - [x] Tauri v2 桌面端打包（Windows MSI/NSIS）
+- [x] 桌面端配置文件持久化（Documents 目录存储，浏览器端 localStorage）
 - [ ] 多账户管理
 - [ ] 文件搜索
 - [ ] 访问统计

@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.2] - 2026-03-11
+
+### Added
+- **桌面端配置文件持久化** - 区分桌面端和浏览器端的配置存储方式
+  - 桌面端：配置存储到用户文档文件夹 `{Documents}/CloudFlareR2-Manager/config.json`
+  - 浏览器端：继续使用 localStorage
+  - 自动迁移：首次运行时自动将 localStorage 数据迁移到文件系统
+- `src-tauri/capabilities/default.json` - Tauri v2 文件系统权限配置
+- `src/lib/isTauri.ts` - Tauri 环境检测工具
+- `src/lib/tauriStorage.ts` - 混合存储适配器（智能选择存储后端）
+
+### Changed
+- `src/stores/configStore.ts` - 使用 `createHybridStorage()` 替代 `localStorage`
+- Sidecar 可执行文件重命名：`server.exe` → `r2-proxy-server.exe`（提高辨识度）
+
+### Fixed
+- 安装时自动关闭旧版本应用进程（解决"文件被占用"安装失败问题）
+- **修复 Documents 文件夹路径拼接错误** - `documentDir()` 返回路径无尾部斜杠导致 `DocumentsCloudFlareR2-Manager` 变成无效路径
+- 修复 `fs:scope` 权限配置，允许访问 `$DOCUMENT` 目录
+
+### Changed
+- 日志文件改为覆写模式（每次启动清空，避免日志爆炸）
+- 配置读写操作添加 Tauri log 输出，便于调试
+
+### Benefits
+- 桌面应用更新不会丢失配置
+- 用户可以手动备份配置文件
+- 跨版本配置持久化
+
+---
+
 ## [0.6.1] - 2026-03-11
 
 ### Changed

@@ -9,7 +9,7 @@ lerna-debug.log*
 
 # Dependencies
 node_modules
-package-lock.json
+# package-lock.json 应该提交，确保依赖版本一致
 
 # Build output
 dist

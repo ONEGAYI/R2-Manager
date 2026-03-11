@@ -15,6 +15,9 @@ use std::io::Write;
 use std::path::PathBuf;
 use chrono::Local;
 
+// 引入 log 插件
+use tauri_plugin_log::{Target, TargetKind};
+
 fn get_log_path() -> PathBuf {
     // 日志文件放在临时目录
     std::env::temp_dir().join("r2manager-debug.log")
@@ -28,7 +31,7 @@ fn log(message: &str) {
     // 输出到控制台
     println!("{}", log_entry.trim());
 
-    // 写入文件
+    // 写入文件（追加模式）
     if let Ok(mut file) = OpenOptions::new()
         .create(true)
         .append(true)
@@ -38,7 +41,31 @@ fn log(message: &str) {
     }
 }
 
+/// 清空日志文件（启动时调用）
+fn clear_log_file() {
+    let log_path = get_log_path();
+    // 使用覆写模式清空文件
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&log_path)
+    {
+        let _ = file.write_all(b"");  // 清空文件
+    }
+}
+
+/// Tauri 命令：前端调用写日志
+#[tauri::command]
+fn log_from_frontend(message: String, level: String) {
+    let formatted = format!("[Frontend] [{}] {}", level.to_uppercase(), message);
+    log(&formatted);
+}
+
 fn main() {
+    // 清空日志文件（每次启动覆写）
+    clear_log_file();
+
     log("=== R2 Manager Starting ===");
     log(&format!("Working dir: {:?}", std::env::current_dir().unwrap_or_default()));
     log(&format!("Exe path: {:?}", std::env::current_exe().unwrap_or_default()));
@@ -51,6 +78,14 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_http::init())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                ])
+                .build()
+        )
+        .invoke_handler(tauri::generate_handler![log_from_frontend])
         .setup(move |app| {
             log("Setup phase started");
 
