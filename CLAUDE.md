@@ -84,6 +84,7 @@ cloudflare-r2-manager/
 ├── CHANGELOG.md                      # 变更日志
 ├── Build.md                          # 桌面端打包指南
 ├── build.bat                         # 一键打包脚本
+├── clean.bat                         # 清理构建产物脚本
 └── package.json                      # 前端依赖配置
 ```
 
