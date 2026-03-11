@@ -42,3 +42,11 @@ r2-credentials.json
 
 # Documents that are unnecessary to track
 TODO.md
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/WixTools/
+src-tauri/binaries/*.exe
+
+# pkg cache (避免 EBUSY 错误时清理)
+.pkg-cache/

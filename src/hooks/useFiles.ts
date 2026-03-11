@@ -24,7 +24,6 @@ export function useFiles() {
     setError,
     addUpload,
     updateUpload,
-    removeUpload,
   } = useFileStore()
 
   const refreshFiles = useCallback(

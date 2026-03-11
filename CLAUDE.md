@@ -5,7 +5,8 @@
 ## 技术栈
 
 - **前端**: React 18 + TypeScript + Vite
-- **后端**: Express.js 代理服务器
+- **后端**: Express.js 代理服务器 (CommonJS，用于 pkg 打包)
+- **桌面端**: Tauri v2 (使用系统 WebView2)
 - **样式**: Tailwind CSS + shadcn/ui
 - **动效**: Framer Motion
 - **状态**: Zustand (带 localStorage 持久化)
@@ -66,12 +67,23 @@ cloudflare-r2-manager/
 │   ├── App.tsx                       # 主应用
 │   └── main.tsx                      # 入口文件
 │
-├── 📁 server/                        # 后端代理服务器
+├── 📁 server/                        # 后端代理服务器 (CommonJS 格式，用于 pkg 打包)
 │   ├── index.js                      # Express 服务器
 │   └── package.json                  # 服务端依赖
 │
+├── 📁 src-tauri/                     # Tauri 桌面端配置
+│   ├── 📁 src/main.rs                # Rust 入口文件（v2 API）
+│   ├── 📁 binaries/                  # Sidecar 可执行文件
+│   │   └── server-x86_64-pc-windows-msvc.exe  # Express 服务端
+│   ├── 📁 icons/                     # 应用图标
+│   ├── tauri.conf.json               # Tauri v2 配置
+│   ├── Cargo.toml                    # Rust 依赖（独立插件）
+│   └── build.rs                      # Tauri 构建脚本
+│
 ├── CLAUDE.md                         # 本文档
 ├── CHANGELOG.md                      # 变更日志
+├── Build.md                          # 桌面端打包指南
+├── build.bat                         # 一键打包脚本
 └── package.json                      # 前端依赖配置
 ```
 
@@ -145,6 +157,7 @@ cloudflare-r2-manager/
 - [ ] 文件、文件夹图标添加
 
 ### Phase 4: 高级功能
+- [x] Tauri v2 桌面端打包（Windows MSI/NSIS）
 - [ ] 多账户管理
 - [ ] 文件搜索
 - [ ] 访问统计

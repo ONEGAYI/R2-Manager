@@ -1,7 +1,6 @@
 import { useCallback } from 'react'
 import { useBucketStore } from '@/stores/bucketStore'
 import { bucketService } from '@/services/bucketService'
-import type { Bucket } from '@/types/bucket'
 
 /**
  * 存储桶操作 Hook

@@ -28,7 +28,6 @@ export function FileGrid({
   objects,
   prefixes,
   selectedKeys,
-  onSelect,
   onOpenFolder,
   onOpenFile,
 }: FileGridProps) {

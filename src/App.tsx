@@ -126,12 +126,6 @@ function App() {
     refreshBuckets()
   }, [refreshBuckets])
 
-  // 处理清除凭证
-  const handleClearCredentials = useCallback(() => {
-    setForceShowConfig(true)
-    setShowSettings(false)
-  }, [])
-
   // 处理桶选择
   const handleSelectBucket = (name: string) => {
     selectBucket(name)

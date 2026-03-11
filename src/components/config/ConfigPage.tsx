@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useConfigStore } from '@/stores/configStore'
 import { api } from '@/services/api'
-import { cn } from '@/lib/cn'
 
 interface ConfigPageProps {
   onConfigured: () => void
@@ -18,7 +17,6 @@ export function ConfigPage({ onConfigured }: ConfigPageProps) {
     secretAccessKey,
     setCredentials,
     setConnected,
-    error,
   } = useConfigStore()
 
   const [formData, setFormData] = useState({

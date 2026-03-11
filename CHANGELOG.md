@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1] - 2026-03-11
+
+### Changed
+- **Tauri v2 迁移**
+  - `tauri.conf.json` - 更新为 v2 配置格式（schema、identifier、bundle 结构）
+  - `Cargo.toml` - 使用独立的 Tauri v2 插件包（shell、clipboard-manager、dialog、fs、http）
+  - `main.rs` - 使用 v2 API（`generate_context!()` 宏、`app.shell()` 方法）
+  - Sidecar 命名简化：`binaries/server-x86_64-pc-windows-msvc` → `binaries/server`
+- **服务端 CommonJS 转换** - 将 server 代码从 ES Module 转换为 CommonJS 格式
+  - `server/index.js` - `import` 改为 `require`，`export` 改为 `module.exports`
+  - `server/package.json` - 移除 `"type": "module"`，添加 `pkg` 配置
+
+### Fixed
+- 修复 TypeScript 未使用变量/导入错误（ConfigPage、FileGrid、useBuckets、useFiles）
+- 修复 `generate_context()` 应为宏调用 `generate_context!()`
+- 修复 `app_handle()` 方法需要 `use tauri::Manager` 导入
+- 修复 server/package.json 缺少 `bin` 字段导致 pkg 打包失败
+- **修复 pkg 打包 ES Module 失败** - `pkg` 工具对 ES Module 支持有限，导致打包后 `Cannot find module` 错误
+
+### Documentation
+- `.gitignore` - 添加 Tauri/Rust 相关忽略规则（target/、WixTools/、binaries/*.exe、.pkg-cache/）
+
+---
+
+## [0.6.0] - 2026-03-11
+
+### Added
+- **Tauri 桌面端打包支持**
+  - 完整的 Tauri 配置 (`src-tauri/`)
+  - Sidecar 方式打包 Express 服务端
+  - 支持 MSI 和 NSIS 两种安装包格式
+  - 中文语言安装界面
+
+### Documentation
+- `Build.md` - 详细的桌面端打包指南
+- `build.bat` - 一键打包脚本（自动检查依赖）
+- `src-tauri/icons/README.md` - 图标文件说明
+
+### Scripts
+- `npm run dev:tauri` - Tauri 开发模式
+- `npm run build:server` - 打包服务端为可执行文件
+- `npm run build:tauri` - 仅打包 Tauri
+- `npm run release` - 完整打包流程（前端 + 服务端 + Tauri）
+
+### Technical
+- 使用系统 WebView2（Windows 10/11 内置）
+- 打包后体积约 5-15 MB（不含 WebView2 运行时）
+- Rust 后端管理 sidecar 生命周期
+
+---
+
 ## [0.5.0] - 2026-03-11
 
 ### Added
