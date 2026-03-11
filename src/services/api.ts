@@ -113,7 +113,8 @@ class ApiService {
     bucketName: string,
     key: string,
     file: File,
-    onProgress?: (loaded: number, total: number, speed: number) => void
+    onProgress?: (loaded: number, total: number, speed: number) => void,
+    onAbort?: (abortFn: () => void) => void
   ): Promise<{ success: boolean; key: string }> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
@@ -207,6 +208,11 @@ class ApiService {
       // 发送请求
       xhr.open('POST', url)
       xhr.send(file)
+
+      // 提供中止函数
+      if (onAbort) {
+        onAbort(() => xhr.abort())
+      }
     })
   }
 

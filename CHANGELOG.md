@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.0] - 2026-03-12
+
+### Added
+- **多线程分块上传功能** - Phase 1 基础实现
+  - `src/types/chunk.ts` - 新增上传相关类型（ChunkUploadInfo、CompletedPart、MultipartUploadSession）
+  - `src/lib/abortRegistry.ts` - 全局 abort 函数注册表，实现真取消机制
+  - `src/services/chunkedUpload.ts` - 分块上传核心实现
+    - ChunkedUploader 类：使用 S3 Multipart Upload API
+    - 支持多线程并发上传分块
+    - 实时进度追踪和速度计算
+    - 进度报告节流（200ms）
+  - 后端 `server/index.js` 新增 4 个 Multipart API
+    - `POST /multipart/initiate` - 初始化分块上传
+    - `POST /multipart/upload-part` - 上传分块
+    - `POST /multipart/complete` - 完成分块上传合并
+    - `POST /multipart/abort` - 取消分块上传清理资源
+
+### Improved
+- **真取消机制** - 取消上传/下载时调用实际清理函数
+  - 分块上传取消：调用 `AbortMultipartUpload` 清理已上传分块
+  - 普通上传取消：调用 `xhr.abort()` 中断请求
+  - 下载取消：调用 `ChunkedDownloader.abort()` 或 `xhr.abort()`
+- `api.uploadFile()` 新增 `onAbort` 回调参数，支持注册取消函数
+- `fileService.uploadFile()` 支持 `onAbort` 参数传递
+- `transferStore.cancelTask()` 改为调用 `abortTask()` 执行真取消
+
+### Technical
+- **分块上传策略**：
+  - 阈值：≥ 10MB 使用分块上传
+  - 分块大小：10MB（自动调整确保不超过 10000 分块限制）
+  - 并发控制：使用用户配置的 `maxUploadThreads`
+- **Multipart Upload 流程**：
+  1. `InitiateMultipartUpload` → 获取 UploadId
+  2. `UploadPart`（并发）→ 每个 Part 返回 ETag
+  3. `CompleteMultipartUpload` → 合并所有 Part
+  4. `AbortMultipartUpload`（取消时）→ 清理已上传分块
+
+---
+
 ## [0.8.2] - 2026-03-12
 
 ### Improved

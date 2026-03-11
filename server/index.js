@@ -11,6 +11,11 @@ const {
   PutObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
+  // Multipart Upload Commands
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
 } = require('@aws-sdk/client-s3')
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner')
 
@@ -526,6 +531,162 @@ app.post('/api/buckets/:bucketName/objects/batch-urls', async (req, res) => {
     res.json({ results })
   } catch (error) {
     console.error('批量获取 URL 失败:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// ==================== Multipart Upload APIs ====================
+
+// API: 初始化分块上传
+app.post('/api/buckets/:bucketName/objects/:key(*)/multipart/initiate', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName, key } = req.params
+  const { contentType } = req.body
+
+  try {
+    console.log('[Multipart] Initiating upload:', { bucketName, key, contentType })
+
+    const command = new CreateMultipartUploadCommand({
+      Bucket: bucketName,
+      Key: key,
+      ContentType: contentType || 'application/octet-stream',
+    })
+
+    const response = await r2Client.send(command)
+    console.log('[Multipart] Initiated:', { key, uploadId: response.UploadId })
+
+    res.json({
+      uploadId: response.UploadId,
+      key,
+    })
+  } catch (error) {
+    console.error('[Multipart] Initiate failed:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// API: 上传分块
+app.post('/api/buckets/:bucketName/objects/:key(*)/multipart/upload-part', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName, key } = req.params
+  const uploadId = req.headers['x-upload-id']
+  const partNumber = parseInt(req.headers['x-part-number'] || '1', 10)
+  const contentLength = parseInt(req.headers['content-length'] || '0', 10)
+
+  if (!uploadId) {
+    return res.status(400).json({ error: '缺少 X-Upload-Id 请求头' })
+  }
+
+  try {
+    console.log('[Multipart] Uploading part:', {
+      key,
+      uploadId,
+      partNumber,
+      contentLength,
+    })
+
+    const command = new UploadPartCommand({
+      Bucket: bucketName,
+      Key: key,
+      UploadId: uploadId,
+      PartNumber: partNumber,
+      Body: req, // 流式传输请求体
+      ContentLength: contentLength,
+    })
+
+    const response = await r2Client.send(command)
+    console.log('[Multipart] Part uploaded:', { key, partNumber, etag: response.ETag })
+
+    res.json({
+      partNumber,
+      etag: response.ETag,
+    })
+  } catch (error) {
+    console.error('[Multipart] Upload part failed:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// API: 完成分块上传
+app.post('/api/buckets/:bucketName/objects/:key(*)/multipart/complete', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName, key } = req.params
+  const { uploadId, parts } = req.body
+
+  if (!uploadId || !parts || !Array.isArray(parts)) {
+    return res.status(400).json({ error: '缺少 uploadId 或 parts' })
+  }
+
+  try {
+    console.log('[Multipart] Completing upload:', {
+      key,
+      uploadId,
+      partsCount: parts.length,
+    })
+
+    const command = new CompleteMultipartUploadCommand({
+      Bucket: bucketName,
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: {
+        Parts: parts.map((p) => ({
+          PartNumber: p.PartNumber,
+          ETag: p.ETag,
+        })),
+      },
+    })
+
+    const response = await r2Client.send(command)
+    console.log('[Multipart] Completed:', { key, location: response.Location })
+
+    res.json({
+      location: response.Location,
+      key: response.Key,
+      etag: response.ETag,
+    })
+  } catch (error) {
+    console.error('[Multipart] Complete failed:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// API: 取消分块上传
+app.post('/api/buckets/:bucketName/objects/:key(*)/multipart/abort', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName, key } = req.params
+  const { uploadId } = req.body
+
+  if (!uploadId) {
+    return res.status(400).json({ error: '缺少 uploadId' })
+  }
+
+  try {
+    console.log('[Multipart] Aborting upload:', { key, uploadId })
+
+    const command = new AbortMultipartUploadCommand({
+      Bucket: bucketName,
+      Key: key,
+      UploadId: uploadId,
+    })
+
+    await r2Client.send(command)
+    console.log('[Multipart] Aborted:', { key, uploadId })
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('[Multipart] Abort failed:', error)
     res.status(500).json({ error: error.message })
   }
 })

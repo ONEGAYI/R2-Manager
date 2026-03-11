@@ -2,8 +2,8 @@
 
 > 调研日期：2026-03-11
 > 最后更新：2026-03-12
-> 状态：Phase 1 已完成并测试验证
-> 目标：实现断点续传 + 多线程分块下载
+> 状态：Phase 1 下载/上传均已完成并测试验证
+> 目标：实现断点续传 + 多线程分块下载 + 多线程分块上传
 
 ---
 
@@ -29,7 +29,7 @@
 
 ## 实施进度
 
-### ✅ Phase 1：基础分块下载（已完成 2026-03-12）
+### ✅ Phase 1 下载：基础分块下载（已完成 2026-03-12）
 
 **已实现的文件**：
 
@@ -58,6 +58,59 @@
 | 50-200MB | 4 | 4 分块并发 |
 | \> 200MB | 8 | 8 分块并发 |
 
+### ✅ Phase 1 上传：S3 Multipart Upload（已完成 2026-03-12）
+
+**已实现的文件**：
+
+| 文件 | 职责 |
+|------|------|
+| `src/types/chunk.ts` | 扩展上传类型（ChunkUploadInfo、CompletedPart、MultipartUploadSession） |
+| `src/lib/abortRegistry.ts` | **新建** - Abort 函数注册表（真取消机制） |
+| `src/lib/transferLogger.ts` | 扩展上传日志方法（uploadInitiated、uploadPartStarted 等） |
+| `src/services/chunkedUpload.ts` | **新建** - ChunkedUploader 类（S3 Multipart Upload） |
+| `src/stores/transferStore.ts` | 修改 cancelTask 调用真取消（abortTask） |
+| `server/index.js` | 新增 4 个 Multipart API 端点 |
+| `src/App.tsx` | 前端集成（handleUpload 根据文件大小选择上传方式） |
+
+**核心功能**：
+- [x] S3 Multipart Upload API 集成
+- [x] 分块并发上传（XHR 进度追踪）
+- [x] 真取消机制（AbortMultipartUpload 清理已上传分块）
+- [x] 分块大小：10MB（自动调整确保不超过 10000 分块限制）
+- [x] 后端 4 个 API 端点
+
+**后端 API 端点**：
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/buckets/:bucket/objects/:key/multipart/initiate` | POST | 初始化分块上传，返回 UploadId |
+| `/api/buckets/:bucket/objects/:key/multipart/upload-part` | POST | 上传单个分块，返回 ETag |
+| `/api/buckets/:bucket/objects/:key/multipart/complete` | POST | 合并所有分块 |
+| `/api/buckets/:bucket/objects/:key/multipart/abort` | POST | 取消上传，清理已上传分块 |
+
+**上传流程**：
+```
+1. InitiateMultipartUpload → 获取 UploadId
+2. UploadPart (并发) → 每个 Part 返回 ETag
+3. CompleteMultipartUpload → 合并所有 Part
+4. AbortMultipartUpload (取消时) → 清理已上传分块
+```
+
+**真取消机制**：
+```typescript
+// 全局 abort 函数注册表
+const abortRegistry = new Map<string, () => void>()
+
+// 注册 abort 函数
+registerAbortFn(taskId, () => uploader.abort())
+
+// 取消任务（真取消）
+cancelTask: (id) => {
+  abortTask(id)  // 调用 ChunkedUploader.abort() 或 XHR.abort()
+  // ... 更新状态
+}
+```
+
 ### ✅ 测试验证已完成（2026-03-12）
 
 **测试环境**: Windows 11, Chrome, localhost:5173
@@ -79,7 +132,7 @@ curl -I -H "Range: bytes=0-1023" http://localhost:3001/api/buckets/test/objects/
 
 **验证结果**: 通过前端分块下载测试间接验证，后端 Range 请求正常工作
 
-#### 2. 前端功能测试
+#### 2. 前端下载功能测试
 1. 启动开发服务器：`npm run dev`
 2. 上传不同大小的测试文件到 R2
 3. 下载文件，观察浏览器控制台日志
@@ -107,15 +160,42 @@ curl -I -H "Range: bytes=0-1023" http://localhost:3001/api/buckets/test/objects/
 [Transfer] Task completed: xxx { duration: '12.34s' }
 ```
 
-#### 3. 性能对比测试 ✅
+#### 3. 前端上传功能测试 ✅
+
+**测试结果**（2026-03-12）：
+- 上传 230MB 文件，自动分为 23 个分块
+- 4 线程并发上传正常
+- 进度实时更新
+- 最终合并成功
+
+**关键日志检查**：
+```
+[Transfer] Task created: xxx { fileName: 'huge.7z', fileSize: '230.00 MB' }
+[Transfer] Multipart upload initiated { uploadId: '...', taskId: '...' }
+[Transfer] Using chunked upload mode { fileSize: '230.00 MB', partCount: 23, concurrency: 4 }
+[Transfer] Part 1 upload started { range: '0 - 10 MB' }
+[Transfer] Part 2 upload started { range: '10 MB - 20 MB' }
+[Transfer] Part 3 upload started { range: '20 MB - 30 MB' }
+[Transfer] Part 4 upload started { range: '30 MB - 40 MB' }
+...
+[Transfer] Part 1 upload completed { size: '10.00 MB' }
+[Transfer] Part 5 upload started { range: '40 MB - 50 MB' }
+...
+[Transfer] Completing multipart upload with 23 parts...
+[Transfer] Multipart upload completed { key: 'test/huge.7z', location: '...' }
+[Transfer] Task completed: test/test/huge.7z { duration: '183.00s' }
+```
+
+#### 4. 性能对比测试 ✅
 - 对比单线程 vs 多线程下载速度
 - 预期：大文件下载速度提升 2-4 倍
 - **实测结果**: 225MB 文件使用 8 分块并发下载，约 25 秒完成
 
-#### 4. 边界情况测试（待后续验证）
+#### 5. 边界情况测试（待后续验证）
 - [ ] 网络中断后重新下载
 - [ ] 下载过程中切换页面
 - [ ] 同时下载多个大文件
+- [ ] 上传过程中取消（验证 AbortMultipartUpload）
 
 ### 🔲 Phase 2：暂停/恢复（未开始）
 - [ ] pending 持久化存储

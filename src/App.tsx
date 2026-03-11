@@ -21,7 +21,9 @@ import { api } from '@/services/api'
 import { fileService } from '@/services/fileService'
 import { initLogger } from '@/lib/logger'
 import { ChunkedDownloader, shouldUseChunkedDownload } from '@/services/chunkedDownload'
+import { ChunkedUploader, shouldUseChunkedUpload } from '@/services/chunkedUpload'
 import { transferLogger } from '@/lib/transferLogger'
+import { registerAbortFn, unregisterAbortFn } from '@/lib/abortRegistry'
 import type { UploadFile } from '@/types/file'
 import '@/styles/globals.css'
 
@@ -287,7 +289,13 @@ function App() {
               },
             })
 
+            // 注册取消函数
+            registerAbortFn(taskId, () => downloader.abort())
+
             blob = await downloader.start()
+
+            // 下载完成，注销 abort 函数
+            unregisterAbortFn(taskId)
           } else {
             // 使用单线程下载（小文件）
             transferLogger.usingSingleThreadMode(fileSize)
@@ -299,10 +307,14 @@ function App() {
                 const progress = total > 0 ? Math.round((loaded / total) * 100) : 0
                 updateTask(taskId, { progress, loadedBytes: loaded, speed })
               },
-              (_abortFn) => {
-                // 保存取消函数（可用于将来实现取消下载）
+              (abortFn) => {
+                // 注册取消函数
+                registerAbortFn(taskId, abortFn)
               }
             )
+
+            // 下载完成，注销 abort 函数
+            unregisterAbortFn(taskId)
           }
 
           // 下载完成，创建下载链接
@@ -325,6 +337,9 @@ function App() {
           const errorMsg = error instanceof Error ? error.message : String(error)
           transferLogger.taskFailed(taskId, errorMsg)
           updateTask(taskId, { status: 'error', error: errorMsg })
+
+          // 注销 abort 函数
+          unregisterAbortFn(taskId)
 
           // 3秒后移动到历史
           setTimeout(() => {
@@ -467,13 +482,53 @@ function App() {
 
       // 更新状态为上传中
       updateTask(taskId, { status: 'running' })
+      transferLogger.taskCreated(taskId, file.name, file.size)
 
       try {
-        // 执行上传，带进度回调
-        await fileService.uploadFile(bucket, key, file, (loaded, total, speed) => {
-          const progress = Math.round((loaded / total) * 100)
-          updateTask(taskId, { progress, loadedBytes: loaded, speed })
-        })
+        // 根据文件大小选择上传方式
+        if (shouldUseChunkedUpload(file.size)) {
+          // 大文件：使用分块上传
+          transferLogger.taskStarted(taskId, 0) // 分块数由 ChunkedUploader 内部计算
+
+          const uploader = new ChunkedUploader({
+            bucketName: bucket,
+            key,
+            file,
+            maxConcurrency: maxUploadThreads,
+            onProgress: (loaded, total, speed) => {
+              const progress = Math.round((loaded / total) * 100)
+              updateTask(taskId, { progress, loadedBytes: loaded, speed })
+            },
+          })
+
+          // 注册取消函数
+          registerAbortFn(taskId, () => uploader.abort())
+
+          await uploader.start()
+
+          // 上传完成，注销 abort 函数
+          unregisterAbortFn(taskId)
+        } else {
+          // 小文件：使用普通上传
+          transferLogger.usingSingleThreadMode(file.size)
+
+          await fileService.uploadFile(
+            bucket,
+            key,
+            file,
+            (loaded, total, speed) => {
+              const progress = Math.round((loaded / total) * 100)
+              updateTask(taskId, { progress, loadedBytes: loaded, speed })
+            },
+            (abortFn) => {
+              // 注册取消函数
+              registerAbortFn(taskId, abortFn)
+            }
+          )
+
+          // 上传完成，注销 abort 函数
+          unregisterAbortFn(taskId)
+        }
 
         // 上传完成
         console.log('Upload completed:', file.name)
@@ -490,11 +545,15 @@ function App() {
       } catch (error) {
         console.error('Upload failed:', error)
 
+        // 注销 abort 函数
+        unregisterAbortFn(taskId)
+
         // 获取当前任务状态
         const task = getTaskById(taskId)
         if (task) {
           // 更新任务状态为错误
           const errorMsg = error instanceof Error ? error.message : String(error)
+          transferLogger.taskFailed(taskId, errorMsg)
           updateTask(taskId, { status: 'error', error: errorMsg })
           // 3秒后移动到历史
           setTimeout(() => {
@@ -560,7 +619,7 @@ function App() {
               currentPath={currentPrefix}
               selectedCount={selectedCount}
               isLoading={isFilesLoading}
-              onRefresh={() => selectedBucket && refreshFiles(selectedBucket, currentPrefix)}
+              onRefresh={() => { if (selectedBucket) refreshFiles(selectedBucket, currentPrefix) }}
               onUpload={() => setShowUploader(true)}
               onCreateFolder={() => {
                 setFolderName('')

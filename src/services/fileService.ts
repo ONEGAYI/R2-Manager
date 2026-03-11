@@ -77,9 +77,10 @@ export const fileService = {
     bucketName: string,
     key: string,
     file: File,
-    onProgress?: (loaded: number, total: number, speed: number) => void
+    onProgress?: (loaded: number, total: number, speed: number) => void,
+    onAbort?: (abortFn: () => void) => void
   ): Promise<void> {
-    await api.uploadFile(bucketName, key, file, onProgress)
+    await api.uploadFile(bucketName, key, file, onProgress, onAbort)
   },
 
   /**

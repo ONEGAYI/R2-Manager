@@ -175,6 +175,71 @@ export const transferLogger = {
       fileSize: formatSize(fileSize),
     })
   },
+
+  // ==================== 分块上传相关日志 ====================
+
+  /**
+   * 分块上传初始化成功
+   */
+  uploadInitiated(uploadId: string, taskId: string): void {
+    log('info', 'Multipart upload initiated', { uploadId, taskId })
+  },
+
+  /**
+   * 使用分块上传模式
+   */
+  usingChunkedUploadMode(fileSize: number, partCount: number, concurrency: number): void {
+    log('info', 'Using chunked upload mode', {
+      fileSize: formatSize(fileSize),
+      partCount,
+      concurrency,
+    })
+  },
+
+  /**
+   * 分块上传开始
+   */
+  uploadPartStarted(partNumber: number, start: number, end: number): void {
+    log('info', `Part ${partNumber} upload started`, {
+      range: `${formatSize(start)} - ${formatSize(end)}`,
+    })
+  },
+
+  /**
+   * 分块上传完成
+   */
+  uploadPartCompleted(partNumber: number, size: number): void {
+    log('info', `Part ${partNumber} upload completed`, { size: formatSize(size) })
+  },
+
+  /**
+   * 分块上传失败
+   */
+  uploadPartFailed(partNumber: number, error: Error | string): void {
+    const errorMsg = error instanceof Error ? error.message : error
+    log('error', `Part ${partNumber} upload failed`, { error: errorMsg })
+  },
+
+  /**
+   * 正在完成分块上传合并
+   */
+  uploadCompleting(partCount: number): void {
+    log('info', `Completing multipart upload with ${partCount} parts...`)
+  },
+
+  /**
+   * 分块上传合并完成
+   */
+  uploadCompleted(key: string, location?: string): void {
+    log('info', 'Multipart upload completed', { key, location })
+  },
+
+  /**
+   * 上传被取消
+   */
+  uploadAborted(taskId: string): void {
+    log('warn', `Upload aborted: ${taskId}`)
+  },
 }
 
 /**

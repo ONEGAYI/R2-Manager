@@ -58,3 +58,52 @@ export const DEFAULT_CHUNK_STRATEGIES: ChunkStrategy[] = [
  * 分块下载任务状态
  */
 export type ChunkedDownloadStatus = 'idle' | 'running' | 'paused' | 'completed' | 'error'
+
+// ==================== 分块上传相关类型 ====================
+
+/**
+ * 分块上传信息
+ */
+export interface ChunkUploadInfo {
+  /** S3 PartNumber 从 1 开始 */
+  partNumber: number
+  /** 起始字节位置 */
+  start: number
+  /** 结束字节位置（不包含） */
+  end: number
+  /** 分块大小 */
+  size: number
+  /** 已上传字节数 */
+  loadedBytes: number
+  /** 是否完成 */
+  completed: boolean
+  /** 上传完成后返回的 ETag */
+  etag?: string
+}
+
+/**
+ * 已完成的分块（用于 CompleteMultipartUpload）
+ */
+export interface CompletedPart {
+  PartNumber: number
+  ETag: string
+}
+
+/**
+ * 上传会话信息
+ */
+export interface MultipartUploadSession {
+  /** S3 UploadId */
+  uploadId: string
+  /** 存储桶名称 */
+  bucketName: string
+  /** 文件键名 */
+  key: string
+  /** 文件大小 */
+  fileSize: number
+}
+
+/**
+ * 分块上传任务状态
+ */
+export type ChunkedUploadStatus = 'idle' | 'initializing' | 'uploading' | 'completing' | 'completed' | 'error' | 'aborted'

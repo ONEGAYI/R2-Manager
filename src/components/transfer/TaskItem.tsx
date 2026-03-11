@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { X, Pause, Play, AlertCircle } from 'lucide-react'
+import { X, Pause, Play } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { TransferTask } from '@/types/transfer'
 

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
 import type { TransferTask, TransferHistory, TransferDirection } from '@/types/transfer'
 import { createHybridStorage } from '@/lib/tauriStorage'
+import { abortTask, unregisterAbortFn } from '@/lib/abortRegistry'
 
 interface TransferState {
   // 进行中的任务（不持久化）
@@ -82,16 +83,23 @@ export const useTransferStore = create<TransferState>()(
         }))
       },
 
-      // 取消任务
+      // 取消任务（真取消）
       cancelTask: (id) => {
+        // 1. 调用真取消（清理资源）
+        abortTask(id)
+
+        // 2. 更新状态
         set((state) => ({
           tasks: state.tasks.map((task) =>
             task.id === id ? { ...task, status: 'error', error: '已取消' } : task
           ),
         }))
-        // 延迟移除，让用户看到取消状态
+
+        // 3. 延迟移除，让用户看到取消状态
         setTimeout(() => {
           get().removeTask(id)
+          // 注销 abort 函数
+          unregisterAbortFn(id)
         }, 1000)
       },
 
