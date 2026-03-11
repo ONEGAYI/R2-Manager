@@ -61,6 +61,8 @@ export class ChunkedUploader {
   private aborted: boolean = false
   private startTime: number = 0
   private lastReportTime: number = 0
+  private lastLoadedBytes: number = 0
+  private lastSpeedTime: number = 0
 
   /** 进度报告节流间隔（毫秒） */
   private static readonly PROGRESS_THROTTLE_MS = 200
@@ -83,6 +85,8 @@ export class ChunkedUploader {
   async start(): Promise<void> {
     this.startTime = Date.now()
     this.lastReportTime = 0
+    this.lastLoadedBytes = 0
+    this.lastSpeedTime = Date.now()
     this.aborted = false
     this.completedParts = []
 
@@ -370,10 +374,20 @@ export class ChunkedUploader {
 
     const totalLoaded = this.parts.reduce((sum, p) => sum + p.loadedBytes, 0)
     const fileSize = this.file.size
+    const now = Date.now()
 
-    // 计算速度
-    const elapsed = (Date.now() - this.startTime) / 1000
-    const speed = elapsed > 0 ? totalLoaded / elapsed : 0
+    // 计算瞬时速度（基于时间间隔）
+    const deltaTime = (now - this.lastSpeedTime) / 1000
+    let speed = 0
+
+    if (deltaTime > 0) {
+      const deltaBytes = totalLoaded - this.lastLoadedBytes
+      speed = deltaBytes / deltaTime
+
+      // 更新上次记录
+      this.lastLoadedBytes = totalLoaded
+      this.lastSpeedTime = now
+    }
 
     this.onProgress(totalLoaded, fileSize, speed)
 

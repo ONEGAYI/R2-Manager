@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Key, Eye, EyeOff, Loader2, Trash2, CheckCircle, RefreshCw, Settings2, ShieldAlert, FolderOpen } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Dialog,
   DialogContent,
@@ -411,24 +412,32 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>设置</DialogTitle>
-          <DialogDescription>
-            管理 R2 连接配置和应用设置
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="sm:max-w-md overflow-hidden">
+        <motion.div
+          layout
+          transition={{
+            type: 'spring',
+            stiffness: 350,
+            damping: 30,
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>设置</DialogTitle>
+            <DialogDescription>
+              管理 R2 连接配置和应用设置
+            </DialogDescription>
+          </DialogHeader>
 
-        {/* 标签导航 */}
-        <div className="flex gap-1 p-1 bg-muted/50 rounded-lg">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                'flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md transition-colors',
+          {/* 标签导航 */}
+          <div className="flex gap-1 p-1 bg-muted/50 rounded-lg relative">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                'relative flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md transition-colors z-10',
                 activeTab === tab.id
-                  ? 'bg-background text-foreground shadow-sm'
+                  ? 'text-foreground'
                   : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
               )}
             >
@@ -436,10 +445,35 @@ export function SettingsDialog({
               <span className="hidden sm:inline">{tab.label}</span>
             </button>
           ))}
+          {/* 滑动指示框 */}
+          <motion.div
+            layoutId="activeTabIndicator"
+            className="absolute top-1 bottom-1 bg-background rounded-md shadow-sm"
+            style={{
+              left: `calc(0.25rem + ${tabs.findIndex(t => t.id === activeTab) * 25}%)`,
+              width: 'calc(25% - 0.25rem)',
+            }}
+            transition={{
+              type: 'spring',
+              stiffness: 400,
+              damping: 30,
+            }}
+          />
         </div>
 
-        {/* 标签内容 */}
-        {renderTabContent()}
+        {/* 标签内容 - 带切换动画 */}
+        <AnimatePresence mode="popLayout">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            {renderTabContent()}
+          </motion.div>
+        </AnimatePresence>
+        </motion.div>
       </DialogContent>
     </Dialog>
   )

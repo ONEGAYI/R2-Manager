@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.1] - 2026-03-12
+
+### Improved
+- **面包屑导航优化** - Win11 风格的路径折叠显示
+  - 超过 3 级路径时，前面的层级折叠为下拉菜单
+  - 点击 `···` 按钮展开被折叠的层级列表
+  - 始终保持单行显示，避免垂直堆叠遮挡 UI
+
+- **Header 响应式布局** - 动态切换紧凑模式
+  - 宽度 < 900px 时自动切换到紧凑布局
+  - 紧凑模式：只显示上传、刷新、视图切换 + "更多"菜单
+  - "更多"菜单整合：批量操作（平铺）、复制路径、新建文件夹、主题切换
+  - 使用 `useLayoutEffect` + `window.resize` 实现可靠检测
+
+- **Header 按钮动效优化**
+  - 所有按钮添加 AnimatePresence 进入/退出缩放动效
+  - 批量操作按钮：状态切换（空/已选）动画
+  - 复制路径按钮：复制前后状态切换动画
+  - 刷新按钮：loading 状态切换动画
+  - 上传/新建文件夹按钮：初始进入动画
+
+- **刷新按钮 hover 动画修复**
+  - 修复 hover 时灰色背景跟随旋转的问题
+  - 使用 `onMouseEnter/onMouseLeave` + state 控制图标旋转
+  - 背景高亮保持静止，只有图标旋转 180°
+
+- **设置对话框动画优化**
+  - 分栏切换：滑动指示框动画（layoutId + Spring 弹性）
+  - 内容切换：透明度淡入淡出（mode="popLayout"）
+  - 高度变化：Spring 弹性动画（stiffness: 350, damping: 30）
+  - 高度与内容动画同时进行，避免"先等内部动完再突变"
+
+### Technical
+- 使用 `useLayoutEffect` 确保 DOM 挂载后同步检测宽度
+- 监听 `window.resize` 事件替代 `ResizeObserver`（更可靠）
+- 添加 `bucketName` 到依赖数组，确保切换桶时重新检测
+- Framer Motion `layout` 属性实现容器尺寸变化动画
+- `AnimatePresence mode="popLayout"` 实现内容即时切换
+
+---
+
 ## [0.9.0] - 2026-03-12
 
 ### Added
@@ -20,6 +61,10 @@ All notable changes to this project will be documented in this file.
     - `POST /multipart/abort` - 取消分块上传清理资源
 
 ### Improved
+- **速度计算优化** - 改为基于时间间隔的瞬时速度
+  - 分块上传/下载：从全程平均速度改为滑动窗口计算
+  - 计算公式：`speed = deltaBytes / deltaTime`
+  - 速度显示更平稳，减少跳动
 - **真取消机制** - 取消上传/下载时调用实际清理函数
   - 分块上传取消：调用 `AbortMultipartUpload` 清理已上传分块
   - 普通上传取消：调用 `xhr.abort()` 中断请求
