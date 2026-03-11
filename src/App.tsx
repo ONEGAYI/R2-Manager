@@ -38,6 +38,8 @@ async function runWithConcurrency<T>(
     // 如果已达到并发上限，等待任意一个任务完成
     if (executing.size >= concurrency) {
       await Promise.race(executing)
+      // 等待微任务完成，确保 .finally() 中的删除操作已执行
+      await Promise.resolve()
     }
 
     // 创建任务并添加到执行集合

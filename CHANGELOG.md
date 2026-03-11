@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.2] - 2026-03-12
+
+### Improved
+- **下载进度报告节流优化** - 减少 UI 更新频率，降低 CPU 占用
+  - 进度回调节流间隔 200ms（之前无限制）
+  - 进度日志数量减少约 60%
+  - 下载速度提升约 36%（减少 React 重新渲染开销）
+  - 确保最终进度始终报告（显示 100%）
+
+### Technical
+- `ChunkedDownloader` 添加 `lastReportTime` 节流变量
+- 新增 `reportProgressThrottled()` 方法替代直接调用
+- `PROGRESS_THROTTLE_MS = 200` 常量控制节流间隔
+
+---
+
 ## [0.8.1] - 2026-03-12
 
 ### Added

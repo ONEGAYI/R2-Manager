@@ -56,6 +56,10 @@ export class ChunkedDownloader {
   private results: Map<number, ArrayBuffer> = new Map()
   private aborted: boolean = false
   private startTime: number = 0
+  private lastReportTime: number = 0
+
+  /** 进度报告节流间隔（毫秒） */
+  private static readonly PROGRESS_THROTTLE_MS = 200
 
   constructor(options: ChunkedDownloaderOptions) {
     this.bucketName = options.bucketName
@@ -72,6 +76,7 @@ export class ChunkedDownloader {
    */
   async start(): Promise<Blob> {
     this.startTime = Date.now()
+    this.lastReportTime = 0
     this.aborted = false
     this.results.clear()
 
@@ -91,6 +96,9 @@ export class ChunkedDownloader {
     if (this.aborted) {
       throw new Error('Download aborted')
     }
+
+    // 强制报告最终进度（确保显示 100%）
+    this.reportProgress()
 
     // 合并分块
     const blob = this.mergeChunks()
@@ -121,9 +129,6 @@ export class ChunkedDownloader {
 
     const rangeHeader = createRangeHeader(chunk.start, chunk.end)
     const url = `${API_BASE}/buckets/${this.bucketName}/objects/${encodeURIComponent(this.key)}/download`
-
-    // 记录速度计算用的时间
-    let lastTime = Date.now()
 
     const response = await fetch(url, {
       headers: { Range: rangeHeader },
@@ -156,17 +161,11 @@ export class ChunkedDownloader {
       chunks.push(value)
       loadedBytes += value.length
 
-      // 更新分块进度
+      // 更新分块进度（始终更新，用于最终统计）
       this.chunks[chunk.index].loadedBytes = loadedBytes
 
-      // 计算并回调总进度
-      this.reportProgress()
-
-      // 更新时间戳
-      const now = Date.now()
-      if (now - lastTime >= 200) {
-        lastTime = now
-      }
+      // 节流：仅当距离上次报告超过阈值时才触发回调
+      this.reportProgressThrottled()
     }
 
     // 合并分块数据
@@ -188,7 +187,21 @@ export class ChunkedDownloader {
   }
 
   /**
-   * 报告进度
+   * 报告进度（节流版本）
+   *
+   * 限制回调频率，避免过于频繁的 UI 更新
+   */
+  private reportProgressThrottled(): void {
+    const now = Date.now()
+    if (now - this.lastReportTime < ChunkedDownloader.PROGRESS_THROTTLE_MS) {
+      return
+    }
+    this.lastReportTime = now
+    this.reportProgress()
+  }
+
+  /**
+   * 报告进度（立即执行）
    */
   private reportProgress(): void {
     if (!this.onProgress) return
@@ -201,7 +214,7 @@ export class ChunkedDownloader {
 
     this.onProgress(totalLoaded, this.fileSize, speed)
 
-    // 输出日志（节流）
+    // 输出日志
     transferLogger.progress(
       `${this.bucketName}/${this.key}`,
       totalLoaded,
