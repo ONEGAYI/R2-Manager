@@ -86,6 +86,9 @@ cloudflare-r2-manager/
 ├── CLAUDE.md                         # 本文档
 ├── CHANGELOG.md                      # 变更日志
 ├── Build.md                          # 桌面端打包指南
+├── 📁 scripts/                       # 脚本目录
+│   └── kill.bat                      # 终止端口占用进程
+├── bump-version.js                   # 版本号更新脚本
 ├── build.bat                         # 一键打包脚本
 ├── clean.bat                         # 清理构建产物脚本
 └── package.json                      # 前端依赖配置

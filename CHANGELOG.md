@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.3] - 2026-03-13
+
+### Fixed
+- **Sidecar 进程管理修复** - 修复桌面端关闭窗口后后端进程残留的问题
+  - 使用 `CommandChild` 类型正确管理 sidecar 子进程句柄
+  - 窗口关闭时显式调用 `kill()` 终止后端进程
+  - 通过 `Arc<Mutex<Option<CommandChild>>>` 实现跨线程安全的进程句柄共享
+
+### Technical
+- 修复 Rust 编译错误：`kill(self)` 需要 ownership，使用 `take()` 取出而非引用
+- 修复闭包 move 问题：在 `setup` 前克隆 `server_child_for_close` 给 `on_window_event` 使用
+
+---
+
 ## [0.9.2] - 2026-03-12
 
 ### Added

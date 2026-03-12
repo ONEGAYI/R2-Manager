@@ -5,9 +5,10 @@
 )]
 
 use tauri_plugin_shell::ShellExt;
+use tauri_plugin_shell::process::CommandChild;
 use tauri::Manager;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::thread;
 use std::fs::OpenOptions;
@@ -71,6 +72,10 @@ fn main() {
     log(&format!("Exe path: {:?}", std::env::current_exe().unwrap_or_default()));
 
     let server_started = Arc::new(AtomicBool::new(false));
+    let server_child: Arc<Mutex<Option<CommandChild>>> = Arc::new(Mutex::new(None));
+
+    // 克隆用于 on_window_event（setup 会 move 原始变量）
+    let server_child_for_close = server_child.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -92,6 +97,7 @@ fn main() {
             // 获取 app handle 用于日志
             let app_handle = app.handle().clone();
             let server_started_clone = server_started.clone();
+            let server_child_clone = server_child.clone();
 
             // 在后台线程启动 sidecar
             thread::spawn(move || {
@@ -107,7 +113,9 @@ fn main() {
                         log("[Sidecar] Command created successfully");
 
                         match sidecar_cmd.spawn() {
-                            Ok((mut rx, _child)) => {
+                            Ok((mut rx, child)) => {
+                                // 保存子进程句柄以便后续清理
+                                *server_child_clone.lock().unwrap() = Some(child);
                                 server_started_clone.store(true, Ordering::SeqCst);
                                 log("[Sidecar] Started successfully");
 
@@ -150,9 +158,22 @@ fn main() {
             log("Setup complete, showing window");
             Ok(())
         })
-        .on_window_event(|window, event| {
+        .on_window_event(move |window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 log("[Window] CloseRequested");
+
+                // 显式杀死 sidecar 进程
+                // kill() 需要 ownership，所以用 take() 取出
+                if let Ok(mut child_guard) = server_child_for_close.lock() {
+                    if let Some(child) = child_guard.take() {
+                        log("[Window] Killing server sidecar...");
+                        match child.kill() {
+                            Ok(_) => log("[Window] Server sidecar killed successfully"),
+                            Err(e) => log(&format!("[Window] Failed to kill server: {}", e)),
+                        }
+                    }
+                }
+
                 let _ = window.app_handle().cleanup_before_exit();
             }
         })

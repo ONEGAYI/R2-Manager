@@ -1,10 +1,9 @@
 {
   "name": "cloudflare-r2-manager",
   "private": true,
-  "version": "0.6.0",
-  "type": "module",
+  "version": "0.9.3",
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev": "concurrently --kill-others-on-fail --raw \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "vite",
     "dev:server": "cd server && npm run dev",
     "dev:tauri": "tauri dev",
@@ -14,7 +13,8 @@
     "release": "npm run build && npm run build:server && npm run build:tauri",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "postinstall": "cd server && npm install"
+    "postinstall": "cd server && npm install",
+    "bump": "node bump-version.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.500.0",
