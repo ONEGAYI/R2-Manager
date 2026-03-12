@@ -9,6 +9,27 @@ export type TransferDirection = 'upload' | 'download'
 export type TransferStatus = 'pending' | 'running' | 'paused' | 'completed' | 'error'
 
 /**
+ * 暂停状态的任务（用于持久化恢复）
+ */
+export interface PausedTask {
+  /** 任务 ID */
+  taskId: string
+  /** 任务创建时间 */
+  createdAt: number
+  /** 任务数据（用于恢复 UI） */
+  taskData: {
+    direction: 'upload'
+    fileName: string
+    filePath: string
+    bucketName: string
+    fileSize: number
+    progress: number
+    loadedBytes: number
+    startTime: number
+  }
+}
+
+/**
  * 传输任务（进行中的任务）
  */
 export interface TransferTask {

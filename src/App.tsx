@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { MainLayout } from '@/components/layout/MainLayout'
 import { Header } from '@/components/layout/Header'
@@ -21,7 +21,8 @@ import { api } from '@/services/api'
 import { fileService } from '@/services/fileService'
 import { initLogger } from '@/lib/logger'
 import { ChunkedDownloader, shouldUseChunkedDownload } from '@/services/chunkedDownload'
-import { ChunkedUploader, shouldUseChunkedUpload } from '@/services/chunkedUpload'
+import { ChunkedUploader, shouldUseChunkedUpload, type ResumeOptions } from '@/services/chunkedUpload'
+import type { ChunkedUploaderState } from '@/types/chunk'
 import { transferLogger } from '@/lib/transferLogger'
 import { registerAbortFn, unregisterAbortFn } from '@/lib/abortRegistry'
 import type { UploadFile } from '@/types/file'
@@ -66,6 +67,14 @@ function App() {
   const [deleting, setDeleting] = useState(false)
   const [uploads, setUploads] = useState<UploadFile[]>([])
 
+  // 上传控制器映射（用于暂停/恢复）
+  const uploadControllers = useRef<Map<string, {
+    uploader: ChunkedUploader
+    pause: () => Promise<ChunkedUploaderState>
+    abort: () => Promise<void>
+  file: File | null
+  }>>(new Map())
+
   const { buckets, selectedBucket, isLoading, selectBucket, refreshBuckets } =
     useBuckets()
   const { viewMode } = useConfig()
@@ -97,6 +106,11 @@ function App() {
     updateTask,
     moveToHistory,
     getTaskById,
+    pauseTask,
+    resumeTask,
+    savePausedUpload,
+    removePausedUpload,
+    getPausedUpload,
   } = useTransferStore()
 
   // 检查是否有有效凭证
@@ -501,12 +515,28 @@ function App() {
             },
           })
 
+          // 注册上传控制器（用于暂停/恢复）
+          uploadControllers.current.set(taskId, {
+            uploader,
+            pause: () => uploader.pause(),
+            abort: () => uploader.abort(),
+            file,
+          })
+
           // 注册取消函数
           registerAbortFn(taskId, () => uploader.abort())
 
           await uploader.start()
 
-          // 上传完成，注销 abort 函数
+          // 检查是否被暂停
+          if (uploader.isPaused()) {
+            // 暂停状态已由 handlePauseUpload 处理
+            // 这里不需要额外处理，直接返回
+            return
+          }
+
+          // 上传完成，清理控制器和 abort 函数
+          uploadControllers.current.delete(taskId)
           unregisterAbortFn(taskId)
         } else {
           // 小文件：使用普通上传
@@ -543,16 +573,24 @@ function App() {
         // 刷新文件列表
         refreshFiles(bucket, prefix)
       } catch (error) {
-        console.error('Upload failed:', error)
-
         // 注销 abort 函数
         unregisterAbortFn(taskId)
 
         // 获取当前任务状态
         const task = getTaskById(taskId)
         if (task) {
-          // 更新任务状态为错误
+          // 检查是否是暂停导致的错误（不是真正的失败）
           const errorMsg = error instanceof Error ? error.message : String(error)
+          const isPausedError = errorMsg === 'Upload paused'
+
+          if (isPausedError) {
+            // 暂停是正常操作，不需要当作失败处理
+            // 暂停状态已由 handlePauseUpload 处理
+            console.log('Upload paused by user:', taskId)
+            return
+          }
+
+          // 更新任务状态为错误
           transferLogger.taskFailed(taskId, errorMsg)
           updateTask(taskId, { status: 'error', error: errorMsg })
           // 3秒后移动到历史
@@ -566,6 +604,153 @@ function App() {
       }
     })
   }, [selectedBucket, currentPrefix, refreshFiles, maxUploadThreads, addTask, updateTask, moveToHistory, getTaskById])
+
+  // 处理暂停上传
+  const handlePauseUpload = useCallback(async (taskId: string) => {
+    const controller = uploadControllers.current.get(taskId)
+    if (!controller) {
+      console.warn('No upload controller found for task:', taskId)
+      return
+    }
+
+    console.log('[Pause] Starting pause for task:', taskId)
+
+    try {
+      // 调用 uploader.pause() 获取状态
+      const state = await controller.uploader.pause()
+      console.log('[Pause] pause() returned, isPaused:', controller.uploader.isPaused())
+
+      // 保存暂停状态到 store
+      savePausedUpload({
+        taskId,
+        uploaderState: state,
+        createdAt: Date.now(),
+      })
+
+      // 更新任务状态
+      pauseTask(taskId)
+
+      console.log('[Pause] Upload paused successfully:', taskId)
+    } catch (error) {
+      console.error('Pause upload failed:', error)
+    }
+  }, [pauseTask, savePausedUpload])
+
+  // 处理恢复上传
+  const handleResumeUpload = useCallback(async (taskId: string) => {
+    const task = getTaskById(taskId)
+    if (!task) {
+      console.warn('Task not found:', taskId)
+      return
+    }
+
+    // 从 store 获取暂停状态
+    const pausedState = getPausedUpload(taskId)
+    if (!pausedState) {
+      console.warn('No paused state found for task:', taskId)
+      return
+    }
+
+    // 验证会话是否过期
+    try {
+      const listPartsResponse = await ChunkedUploader.listPartsFromServer(
+        pausedState.uploaderState.bucketName,
+        pausedState.uploaderState.key,
+        pausedState.uploaderState.uploadId
+      )
+
+      if (listPartsResponse.isExpired) {
+        // 会话已过期
+        transferLogger.uploadSessionExpired(pausedState.uploaderState.key)
+        updateTask(taskId, { status: 'error', error: '上传会话已过期（超过24小时），请重新上传' })
+        removePausedUpload(taskId)
+        return
+      }
+
+      // 更新任务状态为运行中
+      resumeTask(taskId)
+      updateTask(taskId, { status: 'running' })
+
+      // 使用服务器返回的分块信息（最准确，直接反映 S3/R2 上的实际状态）
+      const completedParts = listPartsResponse.parts.map(p => ({
+        PartNumber: p.PartNumber,
+        ETag: p.ETag,
+      }))
+
+      console.log('[Resume] Server parts:', listPartsResponse.parts.length, 'Local parts:', pausedState.uploaderState.completedParts.length)
+
+      // 创建新的 uploader 恢复上传
+      const resumeOptions: ResumeOptions = {
+        uploadId: pausedState.uploaderState.uploadId,
+        completedParts,
+        partSize: pausedState.uploaderState.partSize,
+      }
+
+      // 如果有文件引用，使用它；否则需要提示用户选择文件
+      const file = task.file
+      if (!file) {
+        // 文件对象丢失，提示用户
+        updateTask(taskId, { status: 'error', error: '文件对象丢失，请重新选择文件上传' })
+        removePausedUpload(taskId)
+        return
+      }
+
+      const uploader = new ChunkedUploader({
+        bucketName: pausedState.uploaderState.bucketName,
+        key: pausedState.uploaderState.key,
+        file,
+        maxConcurrency: maxUploadThreads,
+        onProgress: (loaded, total, speed) => {
+          const progress = Math.round((loaded / total) * 100)
+          updateTask(taskId, { progress, loadedBytes: loaded, speed })
+        },
+      })
+
+      // 注册控制器
+      uploadControllers.current.set(taskId, {
+        uploader,
+        pause: () => uploader.pause(),
+        abort: () => uploader.abort(),
+        file,
+      })
+
+      // 注册取消函数
+      registerAbortFn(taskId, () => uploader.abort())
+
+      // 开始恢复上传
+      console.log('[Resume] Starting upload for task:', taskId)
+      await uploader.start(resumeOptions)
+      console.log('[Resume] Upload start() returned, isPaused:', uploader.isPaused(), 'isAborted:', uploader.isAborted())
+
+      // 检查是否被暂停（暂停时 start() 会正常返回而不是抛出错误）
+      if (uploader.isPaused()) {
+        console.log('[Resume] Upload paused again, returning:', taskId)
+        return
+      }
+
+      // 上传完成，清理
+      unregisterAbortFn(taskId)
+      uploadControllers.current.delete(taskId)
+      removePausedUpload(taskId)
+
+      // 移动到历史记录
+      const completedTask = getTaskById(taskId)
+      if (completedTask) {
+        moveToHistory(completedTask, 'completed')
+      }
+
+      // 刷新文件列表
+      refreshFiles(pausedState.uploaderState.bucketName, '')
+
+      console.log('Upload resumed and completed:', taskId)
+    } catch (error) {
+      console.error('Resume upload failed:', error)
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      transferLogger.taskFailed(taskId, errorMsg)
+      updateTask(taskId, { status: 'error', error: errorMsg })
+      unregisterAbortFn(taskId)
+    }
+  }, [getTaskById, getPausedUpload, resumeTask, updateTask, removePausedUpload, moveToHistory, refreshFiles, maxUploadThreads])
 
   // 移除上传项
   const handleUploadRemove = useCallback((id: string) => {
@@ -611,7 +796,10 @@ function App() {
       >
         {/* 传输页面或文件列表 */}
         {selectedBucket === TRANSFER_PAGE_ID ? (
-          <TransferPage />
+          <TransferPage
+            onPauseUpload={handlePauseUpload}
+            onResumeUpload={handleResumeUpload}
+          />
         ) : (
           <>
             <Header

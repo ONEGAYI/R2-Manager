@@ -240,6 +240,48 @@ export const transferLogger = {
   uploadAborted(taskId: string): void {
     log('warn', `Upload aborted: ${taskId}`)
   },
+
+  // ==================== 暂停/恢复相关日志 ====================
+
+  /**
+   * 上传暂停
+   */
+  uploadPaused(key: string, uploadedParts: number, totalParts: number): void {
+    log('info', 'Upload paused', {
+      key,
+      uploadedParts,
+      totalParts,
+      progress: `${((uploadedParts / totalParts) * 100).toFixed(1)}%`,
+    })
+  },
+
+  /**
+   * 上传恢复
+   */
+  uploadResuming(uploadId: string, key: string): void {
+    log('info', 'Upload resuming', { uploadId, key })
+  },
+
+  /**
+   * 从服务端获取已上传分块
+   */
+  uploadPartsListed(key: string, partsCount: number): void {
+    log('info', 'Server parts listed', { key, partsCount })
+  },
+
+  /**
+   * 上传会话过期
+   */
+  uploadSessionExpired(key: string): void {
+    log('warn', 'Upload session expired', { key })
+  },
+
+  /**
+   * 跳过已完成的分块
+   */
+  uploadSkippingParts(key: string, partNumbers: number[]): void {
+    log('info', `Skipping completed parts: ${partNumbers.join(', ')}`, { key })
+  },
 }
 
 /**

@@ -2,12 +2,39 @@
 
 > 调研日期：2026-03-11
 > 最后更新：2026-03-12
-> 状态：Phase 1 下载/上传均已完成并测试验证
+> 状态：Phase 1 下载/上传 + Phase 2 暂停/恢复 均已完成
 > 目标：实现断点续传 + 多线程分块下载 + 多线程分块上传
 
 ---
 
 ## 性能优化记录
+
+### 2026-03-12 上传暂停/恢复功能
+
+**功能**：实现分块上传的暂停和恢复功能
+
+**实现方案**：
+- **暂停机制**：通过 `activeXhrs` Map 追踪所有活跃的 XHR 请求
+  - 调用 `pause()` 时中断所有活跃 XHR
+  - 重置未完成分块的 `loadedBytes` 为 0
+  - 返回 `ChunkedUploaderState` 用于持久化
+- **状态持久化**：`pausedUploads` 数组存储到 Zustand store
+  - 包含 uploadId、completedParts、partSize 等关键信息
+  - 自动持久化到 localStorage/文件系统
+- **恢复机制**：从服务器获取真实已上传分块
+  - 调用 `ListParts` API 获取 S3/R2 上的实际分块状态
+  - 跳过已完成的分块，只上传剩余部分
+  - 会话过期检测（24小时限制）
+
+**新增后端 API**：
+- `GET /api/buckets/:bucket/objects/:key/multipart/parts?uploadId=xxx`
+- 返回已上传分块列表 + isExpired 状态
+
+**新增类型定义**：
+- `ChunkedUploaderState` - 上传器完整状态
+- `PausedUploadState` - 暂停任务持久化格式
+- `ListPartsResponse` - 服务端分块查询响应
+- `ResumeOptions` - 恢复上传配置
 
 ### 2026-03-12 进度报告节流优化
 
@@ -78,6 +105,7 @@
 - [x] 真取消机制（AbortMultipartUpload 清理已上传分块）
 - [x] 分块大小：10MB（自动调整确保不超过 10000 分块限制）
 - [x] 后端 4 个 API 端点
+- [x] 暂停/恢复功能（Phase 2）
 
 **后端 API 端点**：
 
@@ -197,11 +225,62 @@ curl -I -H "Range: bytes=0-1023" http://localhost:3001/api/buckets/test/objects/
 - [ ] 同时下载多个大文件
 - [ ] 上传过程中取消（验证 AbortMultipartUpload）
 
-### 🔲 Phase 2：暂停/恢复（未开始）
-- [ ] pending 持久化存储
-- [ ] 暂停时保存进度
-- [ ] 恢复时续传
-- [ ] 预签名URL刷新
+### ✅ Phase 2 上传：暂停/恢复功能（已完成 2026-03-12）
+
+**已实现的文件**：
+
+| 文件 | 职责 |
+|------|------|
+| `src/services/chunkedUpload.ts` | ChunkedUploader 增强（pause/resume/listPartsFromServer） |
+| `src/stores/transferStore.ts` | 暂停状态持久化（pausedUploads、pauseTask/resumeTask） |
+| `src/App.tsx` | 暂停/恢复处理函数（handlePauseUpload、handleResumeUpload） |
+| `src/types/chunk.ts` | 新增类型（ChunkedUploaderState、PausedUploadState、ListPartsResponse） |
+| `src/components/transfer/TaskItem.tsx` | 排队任务取消按钮 |
+| `src/components/transfer/TransferPage.tsx` | 暂停/恢复回调传递 |
+| `src/lib/transferLogger.ts` | 暂停/恢复相关日志 |
+| `server/index.js` | 新增 ListParts API 端点 |
+
+**核心功能**：
+- [x] 暂停时中断活跃 XHR 请求（通过 `activeXhrs` Map 追踪）
+- [x] 暂停状态持久化到 store（pausedUploads 数组）
+- [x] 恢复时从服务器获取已上传分块（ListParts API）
+- [x] 跳过已完成的分块继续上传
+- [x] 会话过期检测（S3 Multipart Upload 24小时限制）
+- [x] 排队任务支持取消
+
+**后端 API 端点**：
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/buckets/:bucket/objects/:key/multipart/parts?uploadId=xxx` | GET | 查询已上传分块，检测会话过期 |
+
+**暂停/恢复流程**：
+```
+暂停流程：
+1. 用户点击暂停 → handlePauseUpload()
+2. uploader.pause() → 中断所有活跃 XHR
+3. 返回 ChunkedUploaderState → 保存到 pausedUploads
+4. 更新任务状态为 paused
+
+恢复流程：
+1. 用户点击恢复 → handleResumeUpload()
+2. 从 store 获取 pausedUploadState
+3. ListParts API 验证会话 + 获取已上传分块
+4. 创建新 ChunkedUploader，传入 ResumeOptions
+5. uploader.start(resumeOptions) → 跳过已完成分块
+6. 完成后清理暂停状态
+```
+
+**会话过期处理**：
+- S3 Multipart Upload 会话有效期为 24 小时
+- 恢复时调用 ListParts API 检测 `NoSuchUpload` 错误
+- 会话过期时提示用户重新上传
+
+**测试验证**（2026-03-12）：
+- 暂停功能：正常中断 XHR，状态正确保存
+- 恢复功能：从服务器获取分块，跳过已完成部分
+- 会话过期：ListParts 返回 isExpired，UI 显示错误提示
+- UI 状态：暂停任务正确显示在上传中列表
 
 ### 🔲 Phase 3：全局线程池（未开始）
 - [ ] 线程池实现

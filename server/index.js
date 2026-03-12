@@ -16,6 +16,7 @@ const {
   UploadPartCommand,
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
+  ListPartsCommand,
 } = require('@aws-sdk/client-s3')
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner')
 
@@ -688,6 +689,61 @@ app.post('/api/buckets/:bucketName/objects/:key(*)/multipart/abort', async (req,
   } catch (error) {
     console.error('[Multipart] Abort failed:', error)
     res.status(500).json({ error: error.message })
+  }
+})
+
+// API: 查询已上传的分块（用于暂停/恢复）
+app.get('/api/buckets/:bucketName/objects/:key(*)/multipart/parts', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName, key } = req.params
+  const { uploadId } = req.query
+
+  if (!uploadId) {
+    return res.status(400).json({ error: '缺少 uploadId 参数' })
+  }
+
+  try {
+    console.log('[Multipart] Listing parts:', { key, uploadId })
+
+    const command = new ListPartsCommand({
+      Bucket: bucketName,
+      Key: key,
+      UploadId: uploadId,
+    })
+
+    const response = await r2Client.send(command)
+    console.log('[Multipart] Parts listed:', { key, uploadId, count: response.Parts?.length || 0 })
+
+    // 返回已上传的分块信息
+    const parts = (response.Parts || []).map((part) => ({
+      PartNumber: part.PartNumber,
+      ETag: part.ETag,
+      Size: part.Size,
+      LastModified: part.LastModified?.toISOString(),
+    }))
+
+    res.json({
+      uploadId,
+      parts,
+      isExpired: false,
+    })
+  } catch (error) {
+    console.error('[Multipart] List parts failed:', error)
+
+    // 检查是否是会话过期错误（NoSuchUpload）
+    if (error.name === 'NoSuchUpload' || error.Code === 'NoSuchUpload' || error.$metadata?.httpStatusCode === 404) {
+      res.json({
+        uploadId,
+        parts: [],
+        isExpired: true,
+        error: '上传会话已过期，请重新上传',
+      })
+    } else {
+      res.status(500).json({ error: error.message })
+    }
   }
 })
 

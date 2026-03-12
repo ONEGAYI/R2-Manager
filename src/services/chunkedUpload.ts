@@ -1,10 +1,10 @@
 /**
  * 分块上传服务
  *
- * 实现 S3 Multipart Upload 多线程分块上传、并发控制、进度回调、真取消
+ * 实现 S3 Multipart Upload 多线程分块上传、并发控制、进度回调、真取消、暂停/恢复
  */
 
-import type { ChunkUploadInfo, CompletedPart } from '@/types/chunk'
+import type { ChunkUploadInfo, CompletedPart, ChunkedUploaderState, ListPartsResponse } from '@/types/chunk'
 import { transferLogger } from '@/lib/transferLogger'
 
 const API_BASE = 'http://localhost:3001/api'
@@ -44,9 +44,22 @@ export interface ChunkedUploaderOptions {
 }
 
 /**
+ * 恢复上传的配置
+ */
+export interface ResumeOptions {
+  /** 已有的 UploadId */
+  uploadId: string
+  /** 已完成的分块 */
+  completedParts: CompletedPart[]
+  /** 分块大小 */
+  partSize: number
+}
+
+/**
  * 分块上传器
  *
  * 使用 S3 Multipart Upload API 实现多线程并发上传
+ * 支持暂停/恢复功能
  */
 export class ChunkedUploader {
   private bucketName: string
@@ -59,10 +72,17 @@ export class ChunkedUploader {
   private parts: ChunkUploadInfo[] = []
   private completedParts: CompletedPart[] = []
   private aborted: boolean = false
+  private paused: boolean = false
   private startTime: number = 0
   private lastReportTime: number = 0
   private lastLoadedBytes: number = 0
   private lastSpeedTime: number = 0
+
+  /** 活跃的 XHR 请求映射（用于暂停时中断） */
+  private activeXhrs: Map<number, XMLHttpRequest> = new Map()
+
+  /** 分块大小（用于恢复） */
+  private partSize: number = RECOMMENDED_PART_SIZE
 
   /** 进度报告节流间隔（毫秒） */
   private static readonly PROGRESS_THROTTLE_MS = 200
@@ -78,51 +98,218 @@ export class ChunkedUploader {
   /**
    * 开始上传
    *
-   * 1. 初始化 Multipart Upload
-   * 2. 并发上传所有分块
-   * 3. 完成合并
+   * @param resumeOptions 可选的恢复配置（用于从暂停状态恢复）
    */
-  async start(): Promise<void> {
+  async start(resumeOptions?: ResumeOptions): Promise<void> {
     this.startTime = Date.now()
     this.lastReportTime = 0
     this.lastLoadedBytes = 0
     this.lastSpeedTime = Date.now()
     this.aborted = false
-    this.completedParts = []
+    this.paused = false
 
     const fileSize = this.file.size
 
-    // 1. 初始化上传
-    this.uploadId = await this.initiateMultipartUpload()
-    transferLogger.uploadInitiated(this.uploadId, `${this.bucketName}/${this.key}`)
+    if (resumeOptions) {
+      // 从暂停状态恢复
+      this.uploadId = resumeOptions.uploadId
+      this.completedParts = [...resumeOptions.completedParts]
+      this.partSize = resumeOptions.partSize
 
-    // 2. 计算分块
-    this.parts = this.calculateParts(fileSize)
-    const concurrency = this.getRecommendedConcurrency(this.parts.length)
+      transferLogger.uploadResuming(this.uploadId, `${this.bucketName}/${this.key}`)
 
-    transferLogger.usingChunkedUploadMode(fileSize, this.parts.length, concurrency)
+      // 重建分块列表
+      this.parts = this.calculatePartsWithSize(fileSize, this.partSize)
 
-    // 3. 并发上传所有分块
-    await this.runWithConcurrency(
-      this.parts,
-      concurrency,
-      (part) => this.uploadPart(part)
-    )
+      // 标记已完成的分块
+      const completedPartNumbers = new Set(
+        this.completedParts.map((p) => p.PartNumber)
+      )
 
-    if (this.aborted) {
-      // 已取消，调用后端清理
-      await this.abortMultipartUpload()
-      throw new Error('Upload aborted')
+      for (const part of this.parts) {
+        if (completedPartNumbers.has(part.partNumber)) {
+          part.completed = true
+          part.loadedBytes = part.size
+          part.etag = this.completedParts.find(
+            (p) => p.PartNumber === part.partNumber
+          )?.ETag
+        }
+      }
+
+      // 过滤出待上传的分块
+      const pendingParts = this.parts.filter((p) => !p.completed)
+
+      transferLogger.uploadSkippingParts(
+        `${this.bucketName}/${this.key}`,
+        Array.from(completedPartNumbers)
+      )
+
+      if (pendingParts.length === 0) {
+        // 所有分块已完成，直接合并
+        transferLogger.uploadCompleting(this.completedParts.length)
+        await this.completeMultipartUpload()
+        const duration = Date.now() - this.startTime
+        transferLogger.taskCompleted(`${this.bucketName}/${this.key}`, duration)
+        return
+      }
+
+      const concurrency = this.getRecommendedConcurrency(pendingParts.length)
+
+      transferLogger.usingChunkedUploadMode(fileSize, this.parts.length, concurrency)
+
+      // 并发上传剩余分块
+      await this.runWithConcurrency(
+        pendingParts,
+        concurrency,
+        (part) => this.uploadPart(part)
+      )
+
+      if (this.aborted) {
+        await this.abortMultipartUpload()
+        throw new Error('Upload aborted')
+      }
+
+      if (this.paused) {
+        // 暂停由 pause() 方法处理
+        return
+      }
+
+      // 强制报告最终进度
+      this.reportProgress()
+
+      // 完成上传
+      await this.completeMultipartUpload()
+
+      const duration = Date.now() - this.startTime
+      transferLogger.taskCompleted(`${this.bucketName}/${this.key}`, duration)
+    } else {
+      // 全新上传
+      this.completedParts = []
+
+      // 1. 初始化上传
+      this.uploadId = await this.initiateMultipartUpload()
+      transferLogger.uploadInitiated(this.uploadId, `${this.bucketName}/${this.key}`)
+
+      // 2. 计算分块
+      this.parts = this.calculateParts(fileSize)
+      const concurrency = this.getRecommendedConcurrency(this.parts.length)
+
+      transferLogger.usingChunkedUploadMode(fileSize, this.parts.length, concurrency)
+
+      // 3. 并发上传所有分块
+      await this.runWithConcurrency(
+        this.parts,
+        concurrency,
+        (part) => this.uploadPart(part)
+      )
+
+      if (this.aborted) {
+        // 已取消，调用后端清理
+        await this.abortMultipartUpload()
+        throw new Error('Upload aborted')
+      }
+
+      if (this.paused) {
+        // 暂停由 pause() 方法处理
+        return
+      }
+
+      // 4. 强制报告最终进度
+      this.reportProgress()
+
+      // 5. 完成上传
+      await this.completeMultipartUpload()
+
+      const duration = Date.now() - this.startTime
+      transferLogger.taskCompleted(`${this.bucketName}/${this.key}`, duration)
+    }
+  }
+
+  /**
+   * 暂停上传
+   *
+   * @returns 当前上传状态（用于持久化）
+   */
+  async pause(): Promise<ChunkedUploaderState> {
+    if (this.paused) {
+      return this.getState()
     }
 
-    // 4. 强制报告最终进度
-    this.reportProgress()
+    this.paused = true
 
-    // 5. 完成上传
-    await this.completeMultipartUpload()
+    const completedCount = this.completedParts.length
+    const totalCount = this.parts.length
 
-    const duration = Date.now() - this.startTime
-    transferLogger.taskCompleted(`${this.bucketName}/${this.key}`, duration)
+    transferLogger.uploadPaused(
+      `${this.bucketName}/${this.key}`,
+      completedCount,
+      totalCount
+    )
+
+    // 中断所有活跃的 XHR 请求
+    for (const [partNumber, xhr] of this.activeXhrs) {
+      xhr.abort()
+      // 重置该分块的进度
+      const part = this.parts.find((p) => p.partNumber === partNumber)
+      if (part && !part.completed) {
+        part.loadedBytes = 0
+      }
+    }
+    this.activeXhrs.clear()
+
+    // 等待一小段时间确保所有 XHR 都已中断
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    return this.getState()
+  }
+
+  /**
+   * 获取当前状态（用于持久化）
+   */
+  getState(): ChunkedUploaderState {
+    const totalLoaded = this.parts.reduce((sum, p) => sum + p.loadedBytes, 0)
+
+    return {
+      uploadId: this.uploadId || '',
+      bucketName: this.bucketName,
+      key: this.key,
+      fileSize: this.file.size,
+      fileName: this.file.name,
+      fileType: this.file.type || 'application/octet-stream',
+      partSize: this.partSize,
+      totalParts: this.parts.length,
+      completedParts: [...this.completedParts],
+      loadedBytes: totalLoaded,
+      pausedAt: Date.now(),
+    }
+  }
+
+  /**
+   * 从服务端查询已上传的分块
+   *
+   * @returns 服务端分块信息，如果会话过期则 isExpired 为 true
+   */
+  static async listPartsFromServer(
+    bucketName: string,
+    key: string,
+    uploadId: string
+  ): Promise<ListPartsResponse> {
+    const url = `${API_BASE}/buckets/${encodeURIComponent(bucketName)}/objects/${encodeURIComponent(key)}/multipart/parts?uploadId=${encodeURIComponent(uploadId)}`
+
+    try {
+      const response = await fetch(url)
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: response.statusText }))
+        throw new Error(error.error || response.statusText)
+      }
+
+      const data = await response.json()
+      return data as ListPartsResponse
+    } catch (error) {
+      console.error('[ChunkedUploader] List parts failed:', error)
+      throw error
+    }
   }
 
   /**
@@ -134,6 +321,12 @@ export class ChunkedUploader {
     this.aborted = true
     transferLogger.uploadAborted(`${this.bucketName}/${this.key}`)
 
+    // 中断所有活跃的 XHR 请求
+    for (const [, xhr] of this.activeXhrs) {
+      xhr.abort()
+    }
+    this.activeXhrs.clear()
+
     // 如果已有 uploadId，立即调用后端清理
     if (this.uploadId) {
       try {
@@ -142,6 +335,20 @@ export class ChunkedUploader {
         console.error('[ChunkedUploader] Failed to abort multipart upload:', error)
       }
     }
+  }
+
+  /**
+   * 检查是否已暂停
+   */
+  isPaused(): boolean {
+    return this.paused
+  }
+
+  /**
+   * 检查是否已取消
+   */
+  isAborted(): boolean {
+    return this.aborted
   }
 
   /**
@@ -173,8 +380,8 @@ export class ChunkedUploader {
    * 上传单个分块
    */
   private async uploadPart(part: ChunkUploadInfo): Promise<void> {
-    if (this.aborted) {
-      throw new Error('Upload aborted')
+    if (this.aborted || this.paused) {
+      throw new Error(this.paused ? 'Upload paused' : 'Upload aborted')
     }
 
     transferLogger.uploadPartStarted(part.partNumber, part.start, part.end)
@@ -187,8 +394,11 @@ export class ChunkedUploader {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
 
+      // 注册到活跃 XHR 映射
+      this.activeXhrs.set(part.partNumber, xhr)
+
       xhr.upload.onprogress = (event) => {
-        if (this.aborted) {
+        if (this.aborted || this.paused) {
           xhr.abort()
           return
         }
@@ -201,8 +411,16 @@ export class ChunkedUploader {
       }
 
       xhr.onload = () => {
+        // 从活跃 XHR 映射中移除
+        this.activeXhrs.delete(part.partNumber)
+
         if (this.aborted) {
           reject(new Error('Upload aborted'))
+          return
+        }
+
+        if (this.paused) {
+          reject(new Error('Upload paused'))
           return
         }
 
@@ -237,12 +455,18 @@ export class ChunkedUploader {
       }
 
       xhr.onerror = () => {
+        this.activeXhrs.delete(part.partNumber)
         transferLogger.uploadPartFailed(part.partNumber, xhr.statusText)
         reject(new Error(`Part ${part.partNumber} network error`))
       }
 
       xhr.onabort = () => {
-        reject(new Error('Upload aborted'))
+        this.activeXhrs.delete(part.partNumber)
+        if (this.paused) {
+          reject(new Error('Upload paused'))
+        } else {
+          reject(new Error('Upload aborted'))
+        }
       }
 
       xhr.open('POST', url)
@@ -312,8 +536,6 @@ export class ChunkedUploader {
    * 计算分块
    */
   private calculateParts(fileSize: number): ChunkUploadInfo[] {
-    const parts: ChunkUploadInfo[] = []
-
     // 计算分块大小，确保不超过最大分块数
     let partSize = RECOMMENDED_PART_SIZE
     const minPartSizeForMaxParts = Math.ceil(fileSize / MAX_PART_COUNT)
@@ -325,6 +547,18 @@ export class ChunkedUploader {
     if (partSize < MIN_PART_SIZE) {
       partSize = MIN_PART_SIZE
     }
+
+    // 保存分块大小用于恢复
+    this.partSize = partSize
+
+    return this.calculatePartsWithSize(fileSize, partSize)
+  }
+
+  /**
+   * 使用指定分块大小计算分块
+   */
+  private calculatePartsWithSize(fileSize: number, partSize: number): ChunkUploadInfo[] {
+    const parts: ChunkUploadInfo[] = []
 
     let partNumber = 1
     let start = 0
@@ -401,7 +635,7 @@ export class ChunkedUploader {
   }
 
   /**
-   * 并发执行任务
+   * 并发执行任务（支持暂停）
    */
   private async runWithConcurrency<T>(
     items: T[],
@@ -411,7 +645,7 @@ export class ChunkedUploader {
     const executing: Promise<void>[] = []
 
     for (const item of items) {
-      if (this.aborted) break
+      if (this.aborted || this.paused) break
 
       const promise = taskFn(item).finally(() => {
         const index = executing.indexOf(promise)
@@ -423,11 +657,37 @@ export class ChunkedUploader {
       executing.push(promise)
 
       if (executing.length >= concurrency) {
-        await Promise.race(executing)
+        try {
+          await Promise.race(executing)
+        } catch (error) {
+          // 如果是暂停或取消导致的错误，检查状态后决定是否继续
+          if (this.paused || this.aborted) {
+            break
+          }
+          // 其他错误继续抛出
+          throw error
+        }
       }
     }
 
-    await Promise.all(executing)
+    // 使用 Promise.allSettled 等待所有任务（包括被中断的任务）
+    const results = await Promise.allSettled(executing)
+
+    // 检查是否有被暂停中断的任务
+    if (this.paused) {
+      // 暂停时，不抛出错误，让调用者处理
+      return
+    }
+
+    // 检查是否有错误（非暂停导致的错误）
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        const error = result.reason
+        if (error?.message !== 'Upload paused' && error?.message !== 'Upload aborted') {
+          throw error
+        }
+      }
+    }
   }
 }
 

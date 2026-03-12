@@ -107,3 +107,65 @@ export interface MultipartUploadSession {
  * 分块上传任务状态
  */
 export type ChunkedUploadStatus = 'idle' | 'initializing' | 'uploading' | 'completing' | 'completed' | 'error' | 'aborted'
+
+// ==================== 暂停/恢复相关类型 ====================
+
+/**
+ * 服务端分块信息（ListParts API 返回）
+ */
+export interface ServerPartInfo {
+  PartNumber: number
+  ETag: string
+  Size: number
+  LastModified?: string
+}
+
+/**
+ * ListParts API 响应
+ */
+export interface ListPartsResponse {
+  uploadId: string
+  parts: ServerPartInfo[]
+  isExpired: boolean
+  error?: string
+}
+
+/**
+ * ChunkedUploader 内部状态（用于持久化）
+ */
+export interface ChunkedUploaderState {
+  /** S3 UploadId */
+  uploadId: string
+  /** 存储桶名称 */
+  bucketName: string
+  /** 文件键名 */
+  key: string
+  /** 文件大小 */
+  fileSize: number
+  /** 文件名（用于显示） */
+  fileName: string
+  /** 文件类型 */
+  fileType: string
+  /** 分块大小 */
+  partSize: number
+  /** 总分块数 */
+  totalParts: number
+  /** 已完成的分块信息 */
+  completedParts: CompletedPart[]
+  /** 已上传字节数 */
+  loadedBytes: number
+  /** 暂停时间戳 */
+  pausedAt: number
+}
+
+/**
+ * 暂停的上传任务状态（用于持久化到 store）
+ */
+export interface PausedUploadState {
+  /** 任务 ID */
+  taskId: string
+  /** ChunkedUploader 状态 */
+  uploaderState: ChunkedUploaderState
+  /** 创建时间 */
+  createdAt: number
+}

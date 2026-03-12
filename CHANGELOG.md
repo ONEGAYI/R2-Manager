@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.2] - 2026-03-12
+
+### Added
+- **上传暂停/恢复功能** - 支持暂停分块上传并从断点恢复
+  - `ChunkedUploader.pause()` - 中断活跃 XHR 请求，返回可持久化状态
+  - `ChunkedUploader.start(resumeOptions)` - 从暂停状态恢复上传
+  - `ChunkedUploader.listPartsFromServer()` - 从 S3/R2 查询已上传分块
+  - `uploadControllers` ref - 存储每个任务的控制器实例
+  - 后端新增 `GET /multipart/parts` 端点 - 查询已上传分块列表
+
+### Improved
+- **状态持久化** - 暂停的上传任务自动保存到 localStorage/文件
+  - `pausedUploads` 数组存储暂停状态（uploadId、completedParts、partSize 等）
+  - 应用重启后可恢复暂停的上传任务
+  - 自动检测 S3 Multipart Upload 会话过期（24小时限制）
+- **UI 增强**
+  - 排队中的任务添加取消按钮
+  - 暂停状态的任务正确显示在上传中/下载中列表
+
+### Technical
+- **暂停机制**：通过 `activeXhrs` Map 追踪活跃请求，暂停时全部中断
+- **恢复机制**：从服务器获取真实已上传分块，跳过已完成的分块
+- **会话验证**：恢复前调用 `ListParts` API 验证 uploadId 是否有效
+- **新增类型**：`ChunkedUploaderState`、`PausedUploadState`、`ListPartsResponse`
+
+---
+
 ## [0.9.1] - 2026-03-12
 
 ### Improved

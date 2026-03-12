@@ -7,7 +7,12 @@ import { useTransferStore } from '@/stores/transferStore'
 import { Button } from '@/components/ui/button'
 import type { TransferTab, TransferDirection } from '@/types/transfer'
 
-export function TransferPage() {
+interface TransferPageProps {
+  onPauseUpload?: (taskId: string) => void
+  onResumeUpload?: (taskId: string) => void
+}
+
+export function TransferPage({ onPauseUpload, onResumeUpload }: TransferPageProps) {
   const [activeTab, setActiveTab] = useState<TransferTab>('uploading')
 
   const {
@@ -18,9 +23,9 @@ export function TransferPage() {
     clearHistory,
   } = useTransferStore()
 
-  // 计算各标签数量
-  const uploadingCount = tasks.filter(t => t.direction === 'upload' && (t.status === 'pending' || t.status === 'running')).length
-  const downloadingCount = tasks.filter(t => t.direction === 'download' && (t.status === 'pending' || t.status === 'running')).length
+  // 计算各标签数量（包含暂停状态的任务）
+  const uploadingCount = tasks.filter(t => t.direction === 'upload' && (t.status === 'pending' || t.status === 'running' || t.status === 'paused')).length
+  const downloadingCount = tasks.filter(t => t.direction === 'download' && (t.status === 'pending' || t.status === 'running' || t.status === 'paused')).length
   const uploadCompletedCount = history.filter(h => h.direction === 'upload' && h.status === 'completed').length
   const downloadCompletedCount = history.filter(h => h.direction === 'download' && h.status === 'completed').length
 
@@ -29,12 +34,12 @@ export function TransferPage() {
     switch (activeTab) {
       case 'uploading':
         return {
-          tasks: tasks.filter(t => t.direction === 'upload' && (t.status === 'pending' || t.status === 'running' || t.status === 'error')),
+          tasks: tasks.filter(t => t.direction === 'upload' && (t.status === 'pending' || t.status === 'running' || t.status === 'paused' || t.status === 'error')),
           emptyMessage: '没有正在上传的文件',
         }
       case 'downloading':
         return {
-          tasks: tasks.filter(t => t.direction === 'download' && (t.status === 'pending' || t.status === 'running' || t.status === 'error')),
+          tasks: tasks.filter(t => t.direction === 'download' && (t.status === 'pending' || t.status === 'running' || t.status === 'paused' || t.status === 'error')),
           emptyMessage: '没有正在下载的文件',
         }
       case 'uploadCompleted':
@@ -106,6 +111,8 @@ export function TransferPage() {
           <TaskList
             tasks={(content as { tasks: typeof tasks }).tasks}
             onCancel={cancelTask}
+            onPause={onPauseUpload}
+            onResume={onResumeUpload}
             emptyMessage={(content as { emptyMessage: string }).emptyMessage}
           />
         )}

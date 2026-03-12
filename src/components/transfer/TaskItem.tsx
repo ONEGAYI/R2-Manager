@@ -166,9 +166,18 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
           </button>
         )}
         {task.status === 'pending' && (
-          <div className="p-1.5" title="排队中">
-            <QueueIcon className="w-4 h-4 text-muted-foreground" />
-          </div>
+          <>
+            <div className="p-1.5" title="排队中">
+              <QueueIcon className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <button
+              onClick={() => onCancel(task.id)}
+              className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"
+              title="取消等待"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </>
         )}
         {task.status === 'error' && (
           <button
