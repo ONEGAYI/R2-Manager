@@ -5,6 +5,8 @@ import { Header } from '@/components/layout/Header'
 import { FileList } from '@/components/file/FileList'
 import { FileGrid } from '@/components/file/FileGrid'
 import { FileUploader } from '@/components/file/FileUploader'
+import { RenameDialog } from '@/components/file/RenameDialog'
+import { MoveCopyDialog } from '@/components/file/MoveCopyDialog'
 import { Empty } from '@/components/common/Empty'
 import { Loading } from '@/components/common/Loading'
 import { ConfigPage } from '@/components/config/ConfigPage'
@@ -67,6 +69,35 @@ function App() {
   const [forceShowConfig, setForceShowConfig] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [uploads, setUploads] = useState<UploadFile[]>([])
+
+  // 重命名对话框状态
+  const [renameDialog, setRenameDialog] = useState<{
+    open: boolean
+    item: { key: string; name: string; isFolder: boolean } | null
+  }>({ open: false, item: null })
+
+  // 移动/复制对话框状态
+  const [moveCopyDialog, setMoveCopyDialog] = useState<{
+    open: boolean
+    mode: 'move' | 'copy'
+    item: { key: string; name: string; isFolder: boolean } | null
+  }>({ open: false, mode: 'move', item: null })
+
+  // 目标路径下的文件夹列表（用于移动/复制对话框）
+  const [targetFolders, setTargetFolders] = useState<string[]>([])
+
+  // 加载指定路径下的文件夹
+  const loadTargetFolders = useCallback(async (bucketName: string, prefix: string) => {
+    try {
+      const response = await api.listObjects(bucketName, prefix)
+      // 提取文件夹前缀
+      const folders = response.prefixes || []
+      setTargetFolders(folders.map((p: string) => p.replace(/\/$/, '').split('/').pop() || p))
+    } catch (error) {
+      console.error('Load folders failed:', error)
+      setTargetFolders([])
+    }
+  }, [])
 
   // 上传控制器映射（用于暂停/恢复）
   const uploadControllers = useRef<Map<string, {
@@ -957,6 +988,81 @@ function App() {
     }
   }, [selectedBucket, currentPrefix, folderName, refreshFiles])
 
+  // 打开重命名对话框
+  const openRenameDialog = useCallback((key: string, name: string, isFolder: boolean) => {
+    setRenameDialog({ open: true, item: { key, name, isFolder } })
+  }, [])
+
+  // 打开移动/复制对话框
+  const openMoveCopyDialog = useCallback((key: string, name: string, isFolder: boolean, mode: 'move' | 'copy') => {
+    setMoveCopyDialog({ open: true, mode, item: { key, name, isFolder } })
+  }, [])
+
+  // 处理重命名
+  const handleRename = useCallback(async (sourceKey: string, newName: string): Promise<boolean> => {
+    if (!selectedBucket) return false
+
+    try {
+      await fileService.renameFile(selectedBucket, sourceKey, newName)
+      refreshFiles(selectedBucket, currentPrefix)
+      return true
+    } catch (error) {
+      console.error('Rename failed:', error)
+      const errorMsg = (error as Error).message
+      // 检查是否是冲突错误
+      if (errorMsg.includes('已存在')) {
+        alert('重命名失败: 目标名称已存在')
+      } else {
+        alert('重命名失败: ' + errorMsg)
+      }
+      return false
+    }
+  }, [selectedBucket, currentPrefix, refreshFiles])
+
+  // 处理移动
+  const handleMove = useCallback(async (sourceKey: string, destinationKey: string, destinationBucket?: string): Promise<boolean> => {
+    if (!selectedBucket) return false
+
+    try {
+      await fileService.moveFile(selectedBucket, sourceKey, destinationKey, false, destinationBucket)
+      // 刷新源桶和目标桶（如果是跨桶操作）
+      refreshFiles(selectedBucket, currentPrefix)
+      if (destinationBucket && destinationBucket !== selectedBucket) {
+        // 跨桶移动成功，目标桶会在用户切换时刷新
+      }
+      return true
+    } catch (error) {
+      console.error('Move failed:', error)
+      const errorMsg = (error as Error).message
+      if (errorMsg.includes('已存在')) {
+        alert('移动失败: 目标路径已存在')
+      } else {
+        alert('移动失败: ' + errorMsg)
+      }
+      return false
+    }
+  }, [selectedBucket, currentPrefix, refreshFiles])
+
+  // 处理复制
+  const handleCopy = useCallback(async (sourceKey: string, destinationKey: string, destinationBucket?: string): Promise<boolean> => {
+    if (!selectedBucket) return false
+
+    try {
+      await fileService.copyFile(selectedBucket, sourceKey, destinationKey, false, destinationBucket)
+      refreshFiles(selectedBucket, currentPrefix)
+      return true
+    } catch (error) {
+      console.error('Copy failed:', error)
+      const errorMsg = (error as Error).message
+      if (errorMsg.includes('已存在')) {
+        alert('复制失败: 目标路径已存在')
+      } else {
+        alert('复制失败: ' + errorMsg)
+      }
+      return false
+    }
+  }, [selectedBucket, currentPrefix, refreshFiles])
+
   // 未配置凭证或强制显示配置页面时显示配置页面
   if (!hasValidCredentials || forceShowConfig) {
     return <ConfigPage onConfigured={handleConfigured} />
@@ -1061,6 +1167,9 @@ function App() {
                       onOpenFile={handleOpenFile}
                       onDelete={handleDelete}
                       onDownload={handleDownload}
+                      onRename={openRenameDialog}
+                      onMove={(key, name, isFolder) => openMoveCopyDialog(key, name, isFolder, 'move')}
+                      onCopy={(key, name, isFolder) => openMoveCopyDialog(key, name, isFolder, 'copy')}
                     />
                   </motion.div>
                 )}
@@ -1166,6 +1275,28 @@ function App() {
         open={showCreateBucket}
         onOpenChange={setShowCreateBucket}
         onCreate={handleCreateBucket}
+      />
+
+      {/* 重命名对话框 */}
+      <RenameDialog
+        open={renameDialog.open}
+        onOpenChange={(open) => setRenameDialog((prev) => ({ ...prev, open }))}
+        item={renameDialog.item}
+        onRename={handleRename}
+      />
+
+      {/* 移动/复制对话框 */}
+      <MoveCopyDialog
+        open={moveCopyDialog.open}
+        onOpenChange={(open) => setMoveCopyDialog((prev) => ({ ...prev, open }))}
+        mode={moveCopyDialog.mode}
+        item={moveCopyDialog.item}
+        currentPrefix={currentPrefix}
+        sourceBucket={selectedBucket || ''}
+        buckets={buckets.map((b) => b.name)}
+        folders={targetFolders}
+        onConfirm={moveCopyDialog.mode === 'move' ? handleMove : handleCopy}
+        onLoadFolders={loadTargetFolders}
       />
     </>
   )

@@ -11,6 +11,9 @@ const {
   PutObjectCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
+  // Copy/Move Commands
+  CopyObjectCommand,
+  HeadObjectCommand,
   // Multipart Upload Commands
   CreateMultipartUploadCommand,
   UploadPartCommand,
@@ -499,6 +502,329 @@ app.post('/api/buckets/:bucketName/folders', async (req, res) => {
     res.json({ success: true, message: '文件夹创建成功', path: normalizedPath })
   } catch (error) {
     console.error('创建文件夹失败:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// ==================== Copy/Move APIs ====================
+
+// API: 复制对象（支持文件夹递归复制，支持跨桶）
+app.post('/api/buckets/:bucketName/objects/:key(*)/copy', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName, key: sourceKey } = req.params
+  const { destinationKey, destinationBucket, overwrite = false } = req.body
+
+  if (!destinationKey) {
+    return res.status(400).json({ error: '缺少目标路径' })
+  }
+
+  // 目标桶（如果没有指定则使用源桶）
+  const targetBucket = destinationBucket || bucketName
+
+  try {
+    // 检查是否是文件夹（以 / 结尾）
+    if (sourceKey.endsWith('/')) {
+      // 文件夹复制：递归复制所有子对象
+      let allObjects = []
+      let continuationToken = undefined
+
+      // 列出该前缀下的所有对象
+      do {
+        const listCommand = new ListObjectsV2Command({
+          Bucket: bucketName,
+          Prefix: sourceKey,
+          ContinuationToken: continuationToken,
+          MaxKeys: 1000,
+        })
+        const listResponse = await r2Client.send(listCommand)
+
+        if (listResponse.Contents) {
+          allObjects = allObjects.concat(listResponse.Contents)
+        }
+
+        continuationToken = listResponse.NextContinuationToken
+      } while (continuationToken)
+
+      if (allObjects.length === 0) {
+        // 空文件夹，只创建目标文件夹标记
+        const command = new CopyObjectCommand({
+          Bucket: targetBucket,
+          CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
+          Key: destinationKey,
+        })
+        await r2Client.send(command)
+        return res.json({
+          success: true,
+          message: '空文件夹复制成功',
+          copied: 1,
+        })
+      }
+
+      // 逐个复制子对象
+      let copiedCount = 0
+      for (const obj of allObjects) {
+        const relativePath = obj.Key.substring(sourceKey.length)
+        const targetKey = `${destinationKey}${relativePath}`
+
+        // 冲突检测
+        if (!overwrite) {
+          try {
+            const headCommand = new HeadObjectCommand({
+              Bucket: targetBucket,
+              Key: targetKey,
+            })
+            await r2Client.send(headCommand)
+            // 目标已存在，返回冲突错误
+            return res.status(409).json({
+              error: '目标路径已存在',
+              conflictKey: targetKey,
+            })
+          } catch (headError) {
+            // 目标不存在，可以继续复制
+            if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
+              throw headError
+            }
+          }
+        }
+
+        const copyCommand = new CopyObjectCommand({
+          Bucket: targetBucket,
+          CopySource: `${bucketName}/${encodeURIComponent(obj.Key)}`,
+          Key: targetKey,
+        })
+        await r2Client.send(copyCommand)
+        copiedCount++
+      }
+
+      res.json({
+        success: true,
+        message: `文件夹复制成功，共复制 ${copiedCount} 个对象`,
+        copied: copiedCount,
+      })
+    } else {
+      // 单文件复制
+      // 冲突检测
+      if (!overwrite) {
+        try {
+          const headCommand = new HeadObjectCommand({
+            Bucket: targetBucket,
+            Key: destinationKey,
+          })
+          await r2Client.send(headCommand)
+          // 目标已存在，返回冲突错误
+          return res.status(409).json({
+            error: '目标路径已存在',
+            conflictKey: destinationKey,
+          })
+        } catch (headError) {
+          // 目标不存在，可以继续复制
+          if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
+            throw headError
+          }
+        }
+      }
+
+      const command = new CopyObjectCommand({
+        Bucket: targetBucket,
+        CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
+        Key: destinationKey,
+      })
+      await r2Client.send(command)
+
+      res.json({
+        success: true,
+        message: '文件复制成功',
+        copied: 1,
+        key: destinationKey,
+        bucket: targetBucket,
+      })
+    }
+  } catch (error) {
+    console.error('复制对象失败:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// API: 移动对象（复制后删除源，支持跨桶）
+app.post('/api/buckets/:bucketName/objects/:key(*)/move', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName, key: sourceKey } = req.params
+  const { destinationKey, destinationBucket, overwrite = false } = req.body
+
+  if (!destinationKey) {
+    return res.status(400).json({ error: '缺少目标路径' })
+  }
+
+  // 目标桶（如果没有指定则使用源桶）
+  const targetBucket = destinationBucket || bucketName
+
+  // 防止同桶移动到自身
+  if (bucketName === targetBucket && sourceKey === destinationKey) {
+    return res.status(400).json({ error: '源路径和目标路径不能相同' })
+  }
+
+  // 防止同桶文件夹移动到自身子目录
+  if (bucketName === targetBucket && sourceKey.endsWith('/') && destinationKey.startsWith(sourceKey)) {
+    return res.status(400).json({ error: '不能将文件夹移动到自身或子目录中' })
+  }
+
+  try {
+    // 检查是否是文件夹（以 / 结尾）
+    if (sourceKey.endsWith('/')) {
+      // 文件夹移动：递归复制后删除源
+      let allObjects = []
+      let continuationToken = undefined
+
+      // 列出该前缀下的所有对象
+      do {
+        const listCommand = new ListObjectsV2Command({
+          Bucket: bucketName,
+          Prefix: sourceKey,
+          ContinuationToken: continuationToken,
+          MaxKeys: 1000,
+        })
+        const listResponse = await r2Client.send(listCommand)
+
+        if (listResponse.Contents) {
+          allObjects = allObjects.concat(listResponse.Contents)
+        }
+
+        continuationToken = listResponse.NextContinuationToken
+      } while (continuationToken)
+
+      if (allObjects.length === 0) {
+        // 空文件夹，只创建目标文件夹标记并删除源
+        const copyCommand = new CopyObjectCommand({
+          Bucket: targetBucket,
+          CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
+          Key: destinationKey,
+        })
+        await r2Client.send(copyCommand)
+
+        const deleteCommand = new DeleteObjectCommand({
+          Bucket: bucketName,
+          Key: sourceKey,
+        })
+        await r2Client.send(deleteCommand)
+
+        return res.json({
+          success: true,
+          message: '空文件夹移动成功',
+          moved: 1,
+        })
+      }
+
+      // 逐个复制子对象
+      let movedCount = 0
+      const copiedKeys = []
+
+      for (const obj of allObjects) {
+        const relativePath = obj.Key.substring(sourceKey.length)
+        const targetKey = `${destinationKey}${relativePath}`
+
+        // 冲突检测
+        if (!overwrite) {
+          try {
+            const headCommand = new HeadObjectCommand({
+              Bucket: targetBucket,
+              Key: targetKey,
+            })
+            await r2Client.send(headCommand)
+            // 目标已存在，返回冲突错误
+            return res.status(409).json({
+              error: '目标路径已存在',
+              conflictKey: targetKey,
+            })
+          } catch (headError) {
+            // 目标不存在，可以继续复制
+            if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
+              throw headError
+            }
+          }
+        }
+
+        const copyCommand = new CopyObjectCommand({
+          Bucket: targetBucket,
+          CopySource: `${bucketName}/${encodeURIComponent(obj.Key)}`,
+          Key: targetKey,
+        })
+        await r2Client.send(copyCommand)
+        copiedKeys.push(obj.Key)
+        movedCount++
+      }
+
+      // 批量删除源对象
+      for (let i = 0; i < copiedKeys.length; i += 1000) {
+        const batch = copiedKeys.slice(i, i + 1000)
+        const deleteCommand = new DeleteObjectsCommand({
+          Bucket: bucketName,
+          Delete: {
+            Objects: batch.map((k) => ({ Key: k })),
+            Quiet: true,
+          },
+        })
+        await r2Client.send(deleteCommand)
+      }
+
+      res.json({
+        success: true,
+        message: `文件夹移动成功，共移动 ${movedCount} 个对象`,
+        moved: movedCount,
+      })
+    } else {
+      // 单文件移动
+      // 冲突检测
+      if (!overwrite) {
+        try {
+          const headCommand = new HeadObjectCommand({
+            Bucket: targetBucket,
+            Key: destinationKey,
+          })
+          await r2Client.send(headCommand)
+          // 目标已存在，返回冲突错误
+          return res.status(409).json({
+            error: '目标路径已存在',
+            conflictKey: destinationKey,
+          })
+        } catch (headError) {
+          // 目标不存在，可以继续移动
+          if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
+            throw headError
+          }
+        }
+      }
+
+      // 复制
+      const copyCommand = new CopyObjectCommand({
+        Bucket: targetBucket,
+        CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
+        Key: destinationKey,
+      })
+      await r2Client.send(copyCommand)
+
+      // 删除源
+      const deleteCommand = new DeleteObjectCommand({
+        Bucket: bucketName,
+        Key: sourceKey,
+      })
+      await r2Client.send(deleteCommand)
+
+      res.json({
+        success: true,
+        message: '文件移动成功',
+        moved: 1,
+        key: destinationKey,
+        bucket: targetBucket,
+      })
+    }
+  } catch (error) {
+    console.error('移动对象失败:', error)
     res.status(500).json({ error: error.message })
   }
 })

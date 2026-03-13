@@ -90,4 +90,74 @@ export const fileService = {
     const response = await api.createFolder(bucketName, folderPath)
     return { path: response.path }
   },
+
+  /**
+   * 复制文件或文件夹
+   */
+  async copyFile(
+    bucketName: string,
+    sourceKey: string,
+    destinationKey: string,
+    overwrite: boolean = false,
+    destinationBucket?: string
+  ): Promise<{ success: boolean; copied: number; key?: string; bucket?: string }> {
+    const response = await api.copyObject(bucketName, sourceKey, destinationKey, overwrite, destinationBucket)
+    return {
+      success: response.success,
+      copied: response.copied,
+      key: response.key,
+      bucket: response.bucket,
+    }
+  },
+
+  /**
+   * 移动文件或文件夹
+   */
+  async moveFile(
+    bucketName: string,
+    sourceKey: string,
+    destinationKey: string,
+    overwrite: boolean = false,
+    destinationBucket?: string
+  ): Promise<{ success: boolean; moved: number; key?: string; bucket?: string }> {
+    const response = await api.moveObject(bucketName, sourceKey, destinationKey, overwrite, destinationBucket)
+    return {
+      success: response.success,
+      moved: response.moved,
+      key: response.key,
+      bucket: response.bucket,
+    }
+  },
+
+  /**
+   * 重命名文件或文件夹（移动的特例）
+   * @param bucketName 桶名
+   * @param sourceKey 原始路径
+   * @param newName 新名称（仅文件名/文件夹名，不含路径）
+   */
+  async renameFile(
+    bucketName: string,
+    sourceKey: string,
+    newName: string
+  ): Promise<{ success: boolean; key?: string }> {
+    // 解析原路径，提取目录部分
+    const lastSlash = sourceKey.lastIndexOf('/')
+    const dirPath = lastSlash > 0 ? sourceKey.substring(0, lastSlash + 1) : ''
+
+    // 构建新路径（确保文件夹以 / 结尾）
+    let destinationKey: string
+    if (sourceKey.endsWith('/')) {
+      // 文件夹
+      destinationKey = dirPath + newName + '/'
+    } else {
+      // 文件
+      destinationKey = dirPath + newName
+    }
+
+    const response = await api.moveObject(bucketName, sourceKey, destinationKey, false)
+    return {
+      success: response.success,
+      key: response.key,
+    }
+  },
 }

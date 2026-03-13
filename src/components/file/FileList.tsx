@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { MoreVertical, Trash2, Download } from 'lucide-react'
+import { MoreVertical, Trash2, Download, Pencil, FolderInput, Copy } from 'lucide-react'
 import { formatFileSize, formatDate } from '@/lib/utils'
 import { cn } from '@/lib/cn'
 import { FileIcon } from '@/components/common/FileIcon'
@@ -21,6 +21,9 @@ interface FileListProps {
   onOpenFile: (key: string) => void
   onDelete?: (key: string, isFolder: boolean) => void
   onDownload?: (key: string) => void
+  onRename?: (key: string, name: string, isFolder: boolean) => void
+  onMove?: (key: string, name: string, isFolder: boolean) => void
+  onCopy?: (key: string, name: string, isFolder: boolean) => void
 }
 
 export function FileList({
@@ -33,6 +36,9 @@ export function FileList({
   onOpenFile,
   onDelete,
   onDownload,
+  onRename,
+  onMove,
+  onCopy,
 }: FileListProps) {
   // 计算全选状态
   const totalCount = prefixes.length + objects.length
@@ -103,6 +109,18 @@ export function FileList({
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => onRename?.(prefix, folderName, true)}>
+                        <Pencil className="h-4 w-4 mr-2" />
+                        重命名
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onMove?.(prefix, folderName, true)}>
+                        <FolderInput className="h-4 w-4 mr-2" />
+                        移动到...
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onCopy?.(prefix, folderName, true)}>
+                        <Copy className="h-4 w-4 mr-2" />
+                        复制到...
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"
                         onClick={() => onDelete?.(prefix, true)}
@@ -167,6 +185,18 @@ export function FileList({
                       <DropdownMenuItem onClick={() => onDownload?.(obj.key)}>
                         <Download className="h-4 w-4 mr-2" />
                         下载
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onRename?.(obj.key, filename, false)}>
+                        <Pencil className="h-4 w-4 mr-2" />
+                        重命名
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onMove?.(obj.key, filename, false)}>
+                        <FolderInput className="h-4 w-4 mr-2" />
+                        移动到...
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => onCopy?.(obj.key, filename, false)}>
+                        <Copy className="h-4 w-4 mr-2" />
+                        复制到...
                       </DropdownMenuItem>
                       <DropdownMenuItem
                         className="text-destructive focus:text-destructive"

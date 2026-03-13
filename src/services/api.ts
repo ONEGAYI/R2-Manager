@@ -258,6 +258,34 @@ class ApiService {
     })
   }
 
+  // 复制对象
+  async copyObject(
+    bucketName: string,
+    sourceKey: string,
+    destinationKey: string,
+    overwrite: boolean = false,
+    destinationBucket?: string
+  ): Promise<{ success: boolean; message: string; copied: number; key?: string; bucket?: string }> {
+    return this.request(`/buckets/${bucketName}/objects/${encodeURIComponent(sourceKey)}/copy`, {
+      method: 'POST',
+      body: JSON.stringify({ destinationKey, overwrite, destinationBucket }),
+    })
+  }
+
+  // 移动对象
+  async moveObject(
+    bucketName: string,
+    sourceKey: string,
+    destinationKey: string,
+    overwrite: boolean = false,
+    destinationBucket?: string
+  ): Promise<{ success: boolean; message: string; moved: number; key?: string; bucket?: string }> {
+    return this.request(`/buckets/${bucketName}/objects/${encodeURIComponent(sourceKey)}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ destinationKey, overwrite, destinationBucket }),
+    })
+  }
+
   // 重启服务器
   async restartServer(): Promise<ApiResponse> {
     return this.request('/system/restart', {

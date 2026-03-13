@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.7] - 2026-03-13
+
+### Added
+- **文件复制/移动/重命名功能** - Phase 1 MVP 实现
+  - `server/index.js` - 新增 `/copy` 和 `/move` API 端点，支持跨桶操作
+  - `src/services/api.ts` - 新增 `copyObject()` 和 `moveObject()` 方法
+  - `src/services/fileService.ts` - 新增 `copyFile()`、`moveFile()`、`renameFile()` 方法
+  - `src/components/file/RenameDialog.tsx` - 重命名对话框组件
+  - `src/components/file/MoveCopyDialog.tsx` - 移动/复制对话框组件
+    - 左右分栏布局，左侧操作区 + 右侧文件夹浏览器
+    - 支持跨桶移动/复制（目标桶选择器）
+    - 可折叠的右侧文件夹浏览器侧边栏
+    - 循环引用检测（防止文件夹移动到自身或子目录）
+    - 面包屑路径导航
+    - 手动输入路径支持
+  - `src/components/ui/select.tsx` - shadcn/ui Select 下拉组件
+  - `src/components/file/FileList.tsx` - 文件列表菜单添加重命名、移动、复制选项
+
+### Improved
+- **MoveCopyDialog 交互优化**
+  - 右侧栏刷新按钮左边添加"上一层"按钮
+  - 路径规范化：输入 `folder` 自动识别为 `folder/` 加载子文件夹
+  - 防抖机制：手动输入路径时等待 1 秒无变更后再刷新文件夹列表
+  - 按钮操作（进入文件夹、返回上一级、桶切换等）立即执行，跳过防抖
+  - 面包屑导航支持点击跳转到任意层级
+
+### Technical
+- S3 CopyObject + DeleteObject 实现 Move 操作
+- 文件夹是虚拟概念（以 `/` 结尾的前缀），需递归处理
+- `isSelfOrDescendant()` 函数检测循环引用
+- 使用 `skipDebounceRef` 区分用户输入和按钮操作
+
+---
+
 ## [0.9.6] - 2026-03-13
 
 ### Added
