@@ -51,6 +51,10 @@ npm run dev:server  # 仅后端
 ```
 cloudflare-r2-manager/
 ├── 📁 src/
+│   ├── 📁 assets/                    # 静态资源
+│   │   └── 📁 icons/                 # 文件图标 (vscode-icons)
+│   │       ├── 📁 files/             # 文件类型图标 (~58 个 SVG)
+│   │       └── 📁 folders/           # 文件夹图标 (~32 个 SVG)
 │   ├── 📁 components/
 │   │   ├── 📁 ui/                    # shadcn/ui 基础组件 (button, dialog, slider, toast...)
 │   │   ├── 📁 layout/                # 布局组件 (Sidebar, Header, MainLayout)
@@ -58,12 +62,12 @@ cloudflare-r2-manager/
 │   │   ├── 📁 bucket/                # 桶操作组件 (CreateBucket, DeleteBucketDialog)
 │   │   ├── 📁 file/                  # 文件操作组件 (FileList, FileGrid, FileUploader, FilePreview)
 │   │   ├── 📁 transfer/              # 传输中心组件 (TransferPage, TaskList, HistoryList)
-│   │   └── 📁 common/                # 通用组件 (Loading, Empty, ThemeProvider, ThemeToggle)
+│   │   └── 📁 common/                # 通用组件 (Loading, Empty, ThemeProvider, ThemeToggle, FileIcon)
 │   ├── 📁 hooks/                     # 自定义 Hooks (useConfig, useBuckets, useFiles, useUpload)
 │   ├── 📁 services/                  # API 服务层 (api, bucketService, fileService)
 │   ├── 📁 stores/                    # Zustand 状态 (configStore, bucketStore, fileStore, transferStore)
 │   ├── 📁 types/                     # TypeScript 类型 (config, bucket, file, transfer)
-│   ├── 📁 lib/                       # 工具库 (cn, utils, isTauri, logger, tauriStorage)
+│   ├── 📁 lib/                       # 工具库 (cn, utils, isTauri, logger, tauriStorage, fileIcons)
 │   ├── 📁 styles/                    # 全局样式
 │   ├── App.tsx                       # 主应用
 │   └── main.tsx                      # 入口文件
@@ -179,9 +183,12 @@ cloudflare-r2-manager/
 - [x] 响应式布局、面包屑导航布局优化
 - [ ] 动效优化
 - [ ] 键盘快捷键
-- [ ] 拖拽上传
+- [x] 拖拽上传
 - [ ] 性能优化
-- [ ] 文件、文件夹图标添加
+- [x] **文件图标自动识别** - 根据文件后缀名显示 vscode-icons 图标
+  - 支持 58 种文件类型图标（代码、样式、配置、图片、视频、音频、文档、压缩包等）
+  - 支持 32 种文件夹图标（node_modules、src、dist、components 等）
+  - 支持特殊文件识别（package.json、Dockerfile、README.md、LICENSE 等）
 
 ### Phase 4: 高级功能
 - [x] Tauri v2 桌面端打包（Windows MSI/NSIS）

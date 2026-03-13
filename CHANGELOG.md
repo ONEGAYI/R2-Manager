@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.6] - 2026-03-13
+
+### Added
+- **文件图标自动识别** - 根据文件后缀名自动显示对应的 vscode-icons 图标
+  - `src/assets/icons/` - 58 个文件图标 + 32 个文件夹图标（来自 vscode-icons）
+  - `src/lib/fileIcons.ts` - 图标映射逻辑（精确文件名匹配 + 扩展名匹配）
+  - `src/components/common/FileIcon.tsx` - 统一的文件图标组件
+  - 支持常见文件类型：代码（js/ts/py/rs/go/vue/react...）、样式（css/scss/less）、配置（json/yaml/toml）、图片、视频、音频、文档、压缩包等
+  - 支持特殊文件：package.json、Dockerfile、README.md、LICENSE 等
+  - 支持文件夹图标：node_modules、src、dist、components、assets 等
+  - 深色主题适配
+
+### Technical
+- 使用 `vite-plugin-svgr` 将 SVG 转换为 React 组件
+- 使用 `import.meta.glob` 预加载所有图标（eager 模式）
+- FileGrid.tsx 和 FileList.tsx 改用 FileIcon 组件
+
+---
+
 ## [0.9.5] - 2026-03-13
 
 ### Fixed

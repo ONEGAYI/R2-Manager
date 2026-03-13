@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion'
-import { File, Folder, MoreVertical, Trash2, Download } from 'lucide-react'
-import { formatFileSize, formatDate, getFileType } from '@/lib/utils'
+import { MoreVertical, Trash2, Download } from 'lucide-react'
+import { formatFileSize, formatDate } from '@/lib/utils'
 import { cn } from '@/lib/cn'
+import { FileIcon } from '@/components/common/FileIcon'
 import type { R2Object } from '@/types/file'
 import {
   DropdownMenu,
@@ -64,124 +65,123 @@ export function FileList({
         </thead>
         <tbody>
           {/* 文件夹 */}
-          {prefixes.map((prefix, index) => (
-            <motion.tr
-              key={prefix}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.02 }}
-              onClick={() => onOpenFolder(prefix)}
-              className="border-b hover:bg-accent/50 cursor-pointer transition-colors"
-            >
-              <td className="p-3">
-                <input
-                  type="checkbox"
-                  checked={selectedKeys.has(prefix)}
-                  onChange={(e) => {
-                    e.stopPropagation()
-                    onSelect(prefix, e.target.checked)
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="rounded border-gray-300"
-                />
-              </td>
-              <td className="p-3">
-                <div className="flex items-center gap-2">
-                  <Folder className="h-4 w-4 text-primary" />
-                  <span>{prefix.replace(/\/$/, '').split('/').pop()}</span>
-                </div>
-              </td>
-              <td className="p-3 text-muted-foreground">--</td>
-              <td className="p-3 text-muted-foreground">--</td>
-              <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="p-1.5 rounded hover:bg-accent opacity-50 hover:opacity-100 transition-opacity">
-                      <MoreVertical className="h-4 w-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => onDelete?.(prefix, true)}
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      删除
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </td>
-            </motion.tr>
-          ))}
+          {prefixes.map((prefix, index) => {
+            const folderName = prefix.replace(/\/$/, '').split('/').pop() || ''
+            return (
+              <motion.tr
+                key={prefix}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.02 }}
+                onClick={() => onOpenFolder(prefix)}
+                className="border-b hover:bg-accent/50 cursor-pointer transition-colors"
+              >
+                <td className="p-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedKeys.has(prefix)}
+                    onChange={(e) => {
+                      e.stopPropagation()
+                      onSelect(prefix, e.target.checked)
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="rounded border-gray-300"
+                  />
+                </td>
+                <td className="p-3">
+                  <div className="flex items-center gap-2">
+                    <FileIcon filename={folderName} isFolder size="sm" />
+                    <span>{folderName}</span>
+                  </div>
+                </td>
+                <td className="p-3 text-muted-foreground">--</td>
+                <td className="p-3 text-muted-foreground">--</td>
+                <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="p-1.5 rounded hover:bg-accent opacity-50 hover:opacity-100 transition-opacity">
+                        <MoreVertical className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => onDelete?.(prefix, true)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        删除
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </td>
+              </motion.tr>
+            )
+          })}
 
           {/* 文件 */}
-          {objects.map((obj, index) => (
-            <motion.tr
-              key={obj.key}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: (prefixes.length + index) * 0.02 }}
-              onClick={() => onOpenFile(obj.key)}
-              className={cn(
-                'border-b hover:bg-accent/50 cursor-pointer transition-colors',
-                selectedKeys.has(obj.key) && 'bg-primary/10'
-              )}
-            >
-              <td className="p-3">
-                <input
-                  type="checkbox"
-                  checked={selectedKeys.has(obj.key)}
-                  onChange={(e) => {
-                    e.stopPropagation()
-                    onSelect(obj.key, e.target.checked)
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="rounded border-gray-300"
-                />
-              </td>
-              <td className="p-3">
-                <div className="flex items-center gap-2">
-                  <File
-                    className={cn(
-                      'h-4 w-4',
-                      getFileType(obj.key) === 'image' && 'text-green-500',
-                      getFileType(obj.key) === 'video' && 'text-purple-500',
-                      getFileType(obj.key) === 'code' && 'text-blue-500'
-                    )}
+          {objects.map((obj, index) => {
+            const filename = obj.key.split('/').pop() || ''
+            return (
+              <motion.tr
+                key={obj.key}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: (prefixes.length + index) * 0.02 }}
+                onClick={() => onOpenFile(obj.key)}
+                className={cn(
+                  'border-b hover:bg-accent/50 cursor-pointer transition-colors',
+                  selectedKeys.has(obj.key) && 'bg-primary/10'
+                )}
+              >
+                <td className="p-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedKeys.has(obj.key)}
+                    onChange={(e) => {
+                      e.stopPropagation()
+                      onSelect(obj.key, e.target.checked)
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="rounded border-gray-300"
                   />
-                  <span className="truncate">{obj.key.split('/').pop()}</span>
-                </div>
-              </td>
-              <td className="p-3 text-muted-foreground">
-                {formatFileSize(obj.size)}
-              </td>
-              <td className="p-3 text-muted-foreground">
-                {formatDate(obj.lastModified)}
-              </td>
-              <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="p-1.5 rounded hover:bg-accent opacity-50 hover:opacity-100 transition-opacity">
-                      <MoreVertical className="h-4 w-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={() => onDownload?.(obj.key)}>
-                      <Download className="h-4 w-4 mr-2" />
-                      下载
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      onClick={() => onDelete?.(obj.key, false)}
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      删除
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </td>
-            </motion.tr>
-          ))}
+                </td>
+                <td className="p-3">
+                  <div className="flex items-center gap-2">
+                    <FileIcon filename={filename} size="sm" />
+                    <span className="truncate">{filename}</span>
+                  </div>
+                </td>
+                <td className="p-3 text-muted-foreground">
+                  {formatFileSize(obj.size)}
+                </td>
+                <td className="p-3 text-muted-foreground">
+                  {formatDate(obj.lastModified)}
+                </td>
+                <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="p-1.5 rounded hover:bg-accent opacity-50 hover:opacity-100 transition-opacity">
+                        <MoreVertical className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => onDownload?.(obj.key)}>
+                        <Download className="h-4 w-4 mr-2" />
+                        下载
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => onDelete?.(obj.key, false)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        删除
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </td>
+              </motion.tr>
+            )
+          })}
         </tbody>
       </table>
     </div>

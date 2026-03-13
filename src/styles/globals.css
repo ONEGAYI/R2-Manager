@@ -92,3 +92,8 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-muted-foreground/40;
 }
+
+/* 文件图标深色主题适配 */
+.dark .file-icon {
+  filter: brightness(0.9);
+}

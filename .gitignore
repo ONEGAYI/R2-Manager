@@ -40,8 +40,9 @@ r2-credentials.json
 # Scripts config (包含 R2 凭证)
 scripts/etag.config.json
 
-# Claude Code
+# Claude Code & coding config
 .claude/
+.serena/
 
 # Documents that are unnecessary to track
 TODO.md
