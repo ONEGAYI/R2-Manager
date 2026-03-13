@@ -36,3 +36,38 @@ export interface UploadFile {
   status: 'pending' | 'uploading' | 'completed' | 'error'
   error?: string
 }
+
+/**
+ * 批量操作项
+ */
+export interface BatchOperationItem {
+  sourceKey: string
+  destinationKey: string
+  isFolder: boolean
+}
+
+/**
+ * 批量操作结果项
+ */
+export interface BatchOperationResultItem {
+  sourceKey: string
+  destinationKey: string
+  status: 'success' | 'skipped' | 'error'
+  copied?: number
+  moved?: number
+  error?: string
+  skipReason?: string
+}
+
+/**
+ * 批量操作响应
+ */
+export interface BatchOperationResponse {
+  success: boolean
+  message: string
+  results: BatchOperationResultItem[]
+  totalCopied?: number
+  totalMoved?: number
+  totalSkipped: number
+  totalErrors: number
+}

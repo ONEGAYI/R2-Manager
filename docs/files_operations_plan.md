@@ -625,11 +625,13 @@ function selectConflictStrategy(itemCount: number): ConflictStrategy {
 - [x] 面包屑路径导航
 - [x] 循环引用检测
 
-### Phase 2：批量操作
+### Phase 2：批量操作 ✅ 已完成 (v0.9.8)
 
-- [ ] 批量复制/移动
+- [x] 批量复制/移动（集成到传输中心）
+- [x] 自身移动检测（移动到自身或子目录时跳过）
+- [x] SSE 实时进度反馈
+- [x] 传输中心批量操作标签页
 - [ ] 进度气泡组件（最小化状态）
-- [ ] 自身移动检测
 - [ ] 批量冲突检测（ListObjects 方案）
 
 ### Phase 3：完善体验
@@ -639,6 +641,7 @@ function selectConflictStrategy(itemCount: number): ConflictStrategy {
 - [ ] 进度气泡展开状态
 - [ ] 长路径截断 + hover 提示
 - [ ] 操作结果详情
+- [ ] 优化速度
 
 ---
 

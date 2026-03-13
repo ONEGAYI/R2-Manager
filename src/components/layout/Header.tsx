@@ -1,4 +1,4 @@
-import { RefreshCw, Upload, FolderPlus, Grid, List, ChevronLeft, Copy, Check, Layers, Trash2, Download, Loader2, ChevronDown, MoreHorizontal, Sun, Moon, Monitor, MoreVertical } from 'lucide-react'
+import { RefreshCw, Upload, FolderPlus, Grid, List, ChevronLeft, Copy, Check, Layers, Trash2, Download, Loader2, ChevronDown, MoreHorizontal, Sun, Moon, Monitor, MoreVertical, FolderInput } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfig } from '@/hooks/useConfig'
 import { useThemeStore } from '@/stores/themeStore'
@@ -25,6 +25,8 @@ interface HeaderProps {
   onNavigateTo?: (prefix: string) => void
   onBatchDelete?: () => void
   onBatchDownload?: () => void
+  onBatchMove?: () => void
+  onBatchCopy?: () => void
 }
 
 export function Header({
@@ -39,6 +41,8 @@ export function Header({
   onNavigateTo,
   onBatchDelete,
   onBatchDownload,
+  onBatchMove,
+  onBatchCopy,
 }: HeaderProps) {
   const { viewMode, setViewMode } = useConfig()
   const { theme, setTheme } = useThemeStore()
@@ -283,6 +287,14 @@ export function Header({
                 <Download className="h-4 w-4 mr-2" />
                 下载选中项
               </DropdownMenuItem>
+              <DropdownMenuItem onClick={onBatchMove}>
+                <FolderInput className="h-4 w-4 mr-2" />
+                移动选中项
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onBatchCopy}>
+                <Copy className="h-4 w-4 mr-2" />
+                复制选中项
+              </DropdownMenuItem>
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive"
                 onClick={onBatchDelete}
@@ -524,6 +536,22 @@ export function Header({
                     {selectedCount}
                   </span>
                 )}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={onBatchMove}
+                disabled={!hasSelection}
+                className={!hasSelection ? 'opacity-50' : ''}
+              >
+                <FolderInput className="h-4 w-4 mr-2" />
+                移动选中项
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={onBatchCopy}
+                disabled={!hasSelection}
+                className={!hasSelection ? 'opacity-50' : ''}
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                复制选中项
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={onBatchDelete}

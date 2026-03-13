@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
-import type { TransferTask, TransferHistory, TransferDirection } from '@/types/transfer'
+import type { TransferTask, TransferHistory, TransferDirection, TransferOperation } from '@/types/transfer'
 import type { PausedUploadState, PausedDownloadState } from '@/types/chunk'
 import { createHybridStorage } from '@/lib/tauriStorage'
 import { abortTask, unregisterAbortFn } from '@/lib/abortRegistry'
@@ -47,6 +47,18 @@ interface TransferState {
   getActiveUploadCount: () => number
   getActiveDownloadCount: () => number
   getActiveCount: () => number
+
+  // 批量操作辅助方法
+  addBatchOperationTask: (params: {
+    direction: 'copy' | 'move'
+    fileName: string
+    bucketName: string
+    sourceKey: string
+    destinationKey: string
+    destinationBucket?: string
+    totalItems: number
+  }) => string
+  updateBatchProgress: (id: string, completedItems: number, progress: number) => void
 }
 
 // 生成唯一 ID
@@ -300,6 +312,44 @@ export const useTransferStore = create<TransferState>()(
         return tasks.filter(
           (t) => t.status === 'pending' || t.status === 'running'
         ).length
+      },
+
+      // 添加批量操作任务
+      addBatchOperationTask: (params) => {
+        const id = generateId()
+        const task: TransferTask = {
+          id,
+          direction: params.direction,
+          operation: params.direction as TransferOperation,
+          fileName: params.fileName,
+          filePath: params.destinationKey || params.sourceKey,
+          bucketName: params.bucketName,
+          sourceKey: params.sourceKey,
+          destinationBucket: params.destinationBucket,
+          fileSize: 0, // 批量操作不使用文件大小
+          totalItems: params.totalItems,
+          completedItems: 0,
+          startTime: Date.now(),
+          loadedBytes: 0,
+          speed: 0,
+          progress: 0,
+          status: 'running', // 批量操作直接设为运行中
+        }
+        set((state) => ({
+          tasks: [...state.tasks, task],
+        }))
+        return id
+      },
+
+      // 更新批量操作进度
+      updateBatchProgress: (id, completedItems, progress) => {
+        set((state) => ({
+          tasks: state.tasks.map((task) =>
+            task.id === id
+              ? { ...task, completedItems, progress, status: 'running' }
+              : task
+          ),
+        }))
       },
     }),
     {

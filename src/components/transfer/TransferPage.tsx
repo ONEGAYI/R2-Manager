@@ -25,11 +25,16 @@ export function TransferPage({ onPauseUpload, onResumeUpload, onPauseDownload, o
     clearHistory,
   } = useTransferStore()
 
+  // 批量操作方向判断
+  const isBatchDirection = (direction: string) => direction === 'copy' || direction === 'move'
+
   // 计算各标签数量（包含暂停状态的任务）
   const uploadingCount = tasks.filter(t => t.direction === 'upload' && (t.status === 'pending' || t.status === 'running' || t.status === 'paused')).length
   const downloadingCount = tasks.filter(t => t.direction === 'download' && (t.status === 'pending' || t.status === 'running' || t.status === 'paused')).length
+  const batchOperationsCount = tasks.filter(t => isBatchDirection(t.direction) && (t.status === 'pending' || t.status === 'running' || t.status === 'paused')).length
   const uploadCompletedCount = history.filter(h => h.direction === 'upload' && h.status === 'completed').length
   const downloadCompletedCount = history.filter(h => h.direction === 'download' && h.status === 'completed').length
+  const batchCompletedCount = history.filter(h => isBatchDirection(h.direction)).length
 
   // 根据标签获取当前显示的内容
   const getCurrentContent = () => {
@@ -44,6 +49,11 @@ export function TransferPage({ onPauseUpload, onResumeUpload, onPauseDownload, o
           tasks: tasks.filter(t => t.direction === 'download' && (t.status === 'pending' || t.status === 'running' || t.status === 'paused' || t.status === 'error')),
           emptyMessage: '没有正在下载的文件',
         }
+      case 'batchOperations':
+        return {
+          tasks: tasks.filter(t => isBatchDirection(t.direction) && (t.status === 'pending' || t.status === 'running' || t.status === 'paused' || t.status === 'error')),
+          emptyMessage: '没有正在进行的批量操作',
+        }
       case 'uploadCompleted':
         return {
           histories: history.filter(h => h.direction === 'upload'),
@@ -54,13 +64,22 @@ export function TransferPage({ onPauseUpload, onResumeUpload, onPauseDownload, o
           histories: history.filter(h => h.direction === 'download'),
           emptyMessage: '没有下载完成的记录',
         }
+      case 'batchCompleted':
+        return {
+          histories: history.filter(h => isBatchDirection(h.direction)),
+          emptyMessage: '没有批量操作完成的记录',
+        }
     }
   }
 
   const handleClearHistory = () => {
-    const direction: TransferDirection | undefined =
-      activeTab === 'uploadCompleted' ? 'upload' :
-      activeTab === 'downloadCompleted' ? 'download' : undefined
+    let direction: TransferDirection | undefined
+    if (activeTab === 'uploadCompleted') {
+      direction = 'upload'
+    } else if (activeTab === 'downloadCompleted') {
+      direction = 'download'
+    }
+    // 批量操作历史暂不支持清空（因为 copy/move 不在 TransferDirection 类型中）
 
     if (direction) {
       clearHistory(direction)
@@ -68,7 +87,7 @@ export function TransferPage({ onPauseUpload, onResumeUpload, onPauseDownload, o
   }
 
   const content = getCurrentContent()
-  const isHistoryTab = activeTab === 'uploadCompleted' || activeTab === 'downloadCompleted'
+  const isHistoryTab = activeTab === 'uploadCompleted' || activeTab === 'downloadCompleted' || activeTab === 'batchCompleted'
 
   // 根据任务方向调用相应的暂停/恢复回调
   const handlePause = (taskId: string) => {
@@ -77,9 +96,10 @@ export function TransferPage({ onPauseUpload, onResumeUpload, onPauseDownload, o
 
     if (task.direction === 'upload') {
       onPauseUpload?.(taskId)
-    } else {
+    } else if (task.direction === 'download') {
       onPauseDownload?.(taskId)
     }
+    // 批量操作暂不支持暂停
   }
 
   const handleResume = (taskId: string) => {
@@ -88,8 +108,23 @@ export function TransferPage({ onPauseUpload, onResumeUpload, onPauseDownload, o
 
     if (task.direction === 'upload') {
       onResumeUpload?.(taskId)
-    } else {
+    } else if (task.direction === 'download') {
       onResumeDownload?.(taskId)
+    }
+    // 批量操作暂不支持恢复
+  }
+
+  // 获取当前历史标签的记录数量
+  const getCurrentHistoryCount = () => {
+    switch (activeTab) {
+      case 'uploadCompleted':
+        return uploadCompletedCount
+      case 'downloadCompleted':
+        return downloadCompletedCount
+      case 'batchCompleted':
+        return batchCompletedCount
+      default:
+        return 0
     }
   }
 
@@ -98,12 +133,12 @@ export function TransferPage({ onPauseUpload, onResumeUpload, onPauseDownload, o
       {/* 页面标题 */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">传输中心</h1>
-        {isHistoryTab && (
+        {isHistoryTab && activeTab !== 'batchCompleted' && (
           <Button
             variant="outline"
             size="sm"
             onClick={handleClearHistory}
-            disabled={isHistoryTab && (activeTab === 'uploadCompleted' ? uploadCompletedCount : downloadCompletedCount) === 0}
+            disabled={getCurrentHistoryCount() === 0}
             className="text-muted-foreground"
           >
             <Trash2 className="w-4 h-4 mr-2" />
@@ -119,8 +154,10 @@ export function TransferPage({ onPauseUpload, onResumeUpload, onPauseDownload, o
           onTabChange={setActiveTab}
           uploadingCount={uploadingCount}
           downloadingCount={downloadingCount}
+          batchOperationsCount={batchOperationsCount}
           uploadCompletedCount={uploadCompletedCount}
           downloadCompletedCount={downloadCompletedCount}
+          batchCompletedCount={batchCompletedCount}
         />
       </div>
 

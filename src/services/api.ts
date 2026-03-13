@@ -286,6 +286,270 @@ class ApiService {
     })
   }
 
+  // 批量复制对象
+  async batchCopy(
+    bucketName: string,
+    items: Array<{
+      sourceKey: string
+      destinationKey: string
+      isFolder: boolean
+    }>,
+    destinationBucket?: string,
+    overwrite: boolean = false
+  ): Promise<{
+    success: boolean
+    message: string
+    results: Array<{
+      sourceKey: string
+      destinationKey: string
+      status: 'success' | 'skipped' | 'error'
+      copied?: number
+      error?: string
+      skipReason?: string
+    }>
+    totalCopied: number
+    totalSkipped: number
+    totalErrors: number
+  }> {
+    return this.request(`/buckets/${bucketName}/objects/batch-copy`, {
+      method: 'POST',
+      body: JSON.stringify({ items, destinationBucket, overwrite }),
+    })
+  }
+
+  // 批量移动对象
+  async batchMove(
+    bucketName: string,
+    items: Array<{
+      sourceKey: string
+      destinationKey: string
+      isFolder: boolean
+    }>,
+    destinationBucket?: string,
+    overwrite: boolean = false
+  ): Promise<{
+    success: boolean
+    message: string
+    results: Array<{
+      sourceKey: string
+      destinationKey: string
+      status: 'success' | 'skipped' | 'error'
+      moved?: number
+      error?: string
+      skipReason?: string
+    }>
+    totalMoved: number
+    totalSkipped: number
+    totalErrors: number
+  }> {
+    return this.request(`/buckets/${bucketName}/objects/batch-move`, {
+      method: 'POST',
+      body: JSON.stringify({ items, destinationBucket, overwrite }),
+    })
+  }
+
+  // 批量复制对象（带 SSE 进度）
+  async batchCopyWithProgress(
+    bucketName: string,
+    items: Array<{
+      sourceKey: string
+      destinationKey: string
+      isFolder: boolean
+    }>,
+    destinationBucket?: string,
+    overwrite: boolean = false,
+    onProgress?: (data: {
+      type: 'progress' | 'complete' | 'error'
+      current?: number
+      total?: number
+      totalCopied?: number
+      totalSkipped?: number
+      totalErrors?: number
+      message?: string
+      error?: string
+    }) => void
+  ): Promise<{
+    success: boolean
+    message: string
+    results: Array<{
+      sourceKey: string
+      destinationKey: string
+      status: 'success' | 'skipped' | 'error'
+      copied?: number
+      error?: string
+      skipReason?: string
+    }>
+    totalCopied: number
+    totalSkipped: number
+    totalErrors: number
+  }> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      const url = `${API_BASE}/buckets/${bucketName}/objects/batch-copy`
+
+      xhr.open('POST', url)
+      xhr.setRequestHeader('Content-Type', 'application/json')
+      xhr.setRequestHeader('Accept', 'text/event-stream')
+
+      let responseData = ''
+
+      xhr.onprogress = () => {
+        const newText = xhr.responseText.slice(responseData.length)
+        responseData = xhr.responseText
+
+        // 解析 SSE 事件
+        const lines = newText.split('\n')
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (onProgress) {
+                onProgress(data)
+              }
+              // 如果收到完成或错误事件，解析最终结果
+              if (data.type === 'complete') {
+                resolve({
+                  success: data.success,
+                  message: data.message,
+                  results: data.results,
+                  totalCopied: data.totalCopied,
+                  totalSkipped: data.totalSkipped,
+                  totalErrors: data.totalErrors,
+                })
+              } else if (data.type === 'error') {
+                reject(new Error(data.error || '操作失败'))
+              }
+            } catch {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          // 如果不是 SSE 响应，解析普通 JSON
+          if (!xhr.getResponseHeader('Content-Type')?.includes('text/event-stream')) {
+            try {
+              const data = JSON.parse(xhr.responseText)
+              resolve(data)
+            } catch {
+              reject(new Error('Invalid response'))
+            }
+          }
+          // SSE 响应已经在 onprogress 中处理
+        } else {
+          reject(new Error(`Request failed: ${xhr.status}`))
+        }
+      }
+
+      xhr.onerror = () => reject(new Error('Network error'))
+
+      xhr.send(JSON.stringify({ items, destinationBucket, overwrite }))
+    })
+  }
+
+  // 批量移动对象（带 SSE 进度）
+  async batchMoveWithProgress(
+    bucketName: string,
+    items: Array<{
+      sourceKey: string
+      destinationKey: string
+      isFolder: boolean
+    }>,
+    destinationBucket?: string,
+    overwrite: boolean = false,
+    onProgress?: (data: {
+      type: 'progress' | 'complete' | 'error'
+      current?: number
+      total?: number
+      totalMoved?: number
+      totalSkipped?: number
+      totalErrors?: number
+      message?: string
+      error?: string
+    }) => void
+  ): Promise<{
+    success: boolean
+    message: string
+    results: Array<{
+      sourceKey: string
+      destinationKey: string
+      status: 'success' | 'skipped' | 'error'
+      moved?: number
+      error?: string
+      skipReason?: string
+    }>
+    totalMoved: number
+    totalSkipped: number
+    totalErrors: number
+  }> {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      const url = `${API_BASE}/buckets/${bucketName}/objects/batch-move`
+
+      xhr.open('POST', url)
+      xhr.setRequestHeader('Content-Type', 'application/json')
+      xhr.setRequestHeader('Accept', 'text/event-stream')
+
+      let responseData = ''
+
+      xhr.onprogress = () => {
+        const newText = xhr.responseText.slice(responseData.length)
+        responseData = xhr.responseText
+
+        // 解析 SSE 事件
+        const lines = newText.split('\n')
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (onProgress) {
+                onProgress(data)
+              }
+              // 如果收到完成或错误事件，解析最终结果
+              if (data.type === 'complete') {
+                resolve({
+                  success: data.success,
+                  message: data.message,
+                  results: data.results,
+                  totalMoved: data.totalMoved,
+                  totalSkipped: data.totalSkipped,
+                  totalErrors: data.totalErrors,
+                })
+              } else if (data.type === 'error') {
+                reject(new Error(data.error || '操作失败'))
+              }
+            } catch {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          // 如果不是 SSE 响应，解析普通 JSON
+          if (!xhr.getResponseHeader('Content-Type')?.includes('text/event-stream')) {
+            try {
+              const data = JSON.parse(xhr.responseText)
+              resolve(data)
+            } catch {
+              reject(new Error('Invalid response'))
+            }
+          }
+          // SSE 响应已经在 onprogress 中处理
+        } else {
+          reject(new Error(`Request failed: ${xhr.status}`))
+        }
+      }
+
+      xhr.onerror = () => reject(new Error('Network error'))
+
+      xhr.send(JSON.stringify({ items, destinationBucket, overwrite }))
+    })
+  }
+
   // 重启服务器
   async restartServer(): Promise<ApiResponse> {
     return this.request('/system/restart', {

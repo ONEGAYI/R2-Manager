@@ -862,6 +862,622 @@ app.post('/api/buckets/:bucketName/objects/batch-urls', async (req, res) => {
   }
 })
 
+// ==================== Batch Copy/Move APIs ====================
+
+// SSE 进度报告辅助函数
+function sendSSEProgress(res, data) {
+  res.write(`data: ${JSON.stringify(data)}\n\n`)
+}
+
+// 批量操作进度报告（统一封装）
+function reportBatchProgress(res, isSSERequest, opts) {
+  if (!isSSERequest) return
+  const { current, total, sourceKey, destKey, stats } = opts
+  const { totalCopied, totalMoved, totalSkipped, totalErrors } = stats
+  sendSSEProgress(res, {
+    type: 'progress',
+    current,
+    total,
+    currentSourceKey: sourceKey,
+    currentDestKey: destKey,
+    totalCopied: totalCopied || 0,
+    totalMoved: totalMoved || 0,
+    totalSkipped: totalSkipped || 0,
+    totalErrors: totalErrors || 0,
+  })
+}
+
+// API: 批量复制对象 (支持 SSE 进度)
+app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName } = req.params
+  const { items, destinationBucket, overwrite = false } = req.body
+
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: '请提供要复制的对象列表' })
+  }
+
+  // 检测是否请求 SSE
+  const isSSERequest = req.headers.accept === 'text/event-stream'
+
+  if (isSSERequest) {
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders()
+  }
+
+  const targetBucket = destinationBucket || bucketName
+  const results = []
+  let totalCopied = 0
+  let totalSkipped = 0
+  let totalErrors = 0
+  const totalItems = items.length
+
+  try {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      const { sourceKey, destinationKey, isFolder } = item
+      let itemCopied = 0
+      let itemSkipped = 0
+      let itemError = null
+
+      try {
+        // 检查是否是文件夹
+        if (isFolder || sourceKey.endsWith('/')) {
+          // 文件夹复制：递归复制所有子对象
+          let allObjects = []
+          let continuationToken = undefined
+
+          do {
+            const listCommand = new ListObjectsV2Command({
+              Bucket: bucketName,
+              Prefix: sourceKey,
+              ContinuationToken: continuationToken,
+              MaxKeys: 1000,
+            })
+            const listResponse = await r2Client.send(listCommand)
+
+            if (listResponse.Contents) {
+              allObjects = allObjects.concat(listResponse.Contents)
+            }
+
+            continuationToken = listResponse.NextContinuationToken
+          } while (continuationToken)
+
+          if (allObjects.length === 0) {
+            // 空文件夹
+            if (!overwrite) {
+              try {
+                const headCommand = new HeadObjectCommand({
+                  Bucket: targetBucket,
+                  Key: destinationKey,
+                })
+                await r2Client.send(headCommand)
+                results.push({
+                  sourceKey,
+                  destinationKey,
+                  status: 'skipped',
+                  skipReason: '目标已存在',
+                })
+                totalSkipped++
+                reportBatchProgress(res, isSSERequest, {
+                  current: i + 1,
+                  total: totalItems,
+                  sourceKey,
+                  destKey: destinationKey,
+                  stats: { totalCopied, totalSkipped, totalErrors }
+                })
+                continue
+              } catch (headError) {
+                if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
+                  throw headError
+                }
+              }
+            }
+
+            const copyCommand = new CopyObjectCommand({
+              Bucket: targetBucket,
+              CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
+              Key: destinationKey,
+            })
+            await r2Client.send(copyCommand)
+            results.push({
+              sourceKey,
+              destinationKey,
+              status: 'success',
+              copied: 1,
+            })
+            totalCopied++
+            reportBatchProgress(res, isSSERequest, {
+              current: i + 1,
+              total: totalItems,
+              sourceKey,
+              destKey: destinationKey,
+              stats: { totalCopied, totalSkipped, totalErrors }
+            })
+            continue
+          }
+
+          // 逐个复制子对象
+          let copiedCount = 0
+          let hasError = false
+          let errorMsg = ''
+
+          for (const obj of allObjects) {
+            const relativePath = obj.Key.substring(sourceKey.length)
+            const targetKey = `${destinationKey}${relativePath}`
+
+            // 冲突检测
+            if (!overwrite) {
+              try {
+                const headCommand = new HeadObjectCommand({
+                  Bucket: targetBucket,
+                  Key: targetKey,
+                })
+                await r2Client.send(headCommand)
+                hasError = true
+                errorMsg = `目标路径已存在: ${targetKey}`
+                break
+              } catch (headError) {
+                if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
+                  throw headError
+                }
+              }
+            }
+
+            const copyCommand = new CopyObjectCommand({
+              Bucket: targetBucket,
+              CopySource: `${bucketName}/${encodeURIComponent(obj.Key)}`,
+              Key: targetKey,
+            })
+            await r2Client.send(copyCommand)
+            copiedCount++
+          }
+
+          if (hasError) {
+            results.push({
+              sourceKey,
+              destinationKey,
+              status: 'error',
+              error: errorMsg,
+            })
+            totalErrors++
+          } else {
+            results.push({
+              sourceKey,
+              destinationKey,
+              status: 'success',
+              copied: copiedCount,
+            })
+            totalCopied += copiedCount
+          }
+        } else {
+          // 单文件复制
+          if (!overwrite) {
+            try {
+              const headCommand = new HeadObjectCommand({
+                Bucket: targetBucket,
+                Key: destinationKey,
+              })
+              await r2Client.send(headCommand)
+              results.push({
+                sourceKey,
+                destinationKey,
+                status: 'skipped',
+                skipReason: '目标已存在',
+              })
+              totalSkipped++
+              reportBatchProgress(res, isSSERequest, {
+                current: i + 1,
+                total: totalItems,
+                sourceKey,
+                destKey: destinationKey,
+                stats: { totalCopied, totalSkipped, totalErrors }
+              })
+              continue
+            } catch (headError) {
+              if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
+                throw headError
+              }
+            }
+          }
+
+          const copyCommand = new CopyObjectCommand({
+            Bucket: targetBucket,
+            CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
+            Key: destinationKey,
+          })
+          await r2Client.send(copyCommand)
+
+          results.push({
+            sourceKey,
+            destinationKey,
+            status: 'success',
+            copied: 1,
+          })
+          totalCopied++
+        }
+      } catch (err) {
+        results.push({
+          sourceKey,
+          destinationKey,
+          status: 'error',
+          error: err.message,
+        })
+        totalErrors++
+      }
+
+      // 循环末尾发送进度
+      reportBatchProgress(res, isSSERequest, {
+        current: i + 1,
+        total: totalItems,
+        sourceKey,
+        destKey: destinationKey,
+        stats: { totalCopied, totalSkipped, totalErrors }
+      })
+    }
+
+    // 发送完成事件或返回 JSON
+    if (isSSERequest) {
+      sendSSEProgress(res, {
+        type: 'complete',
+        success: true,
+        message: `批量复制完成: 成功 ${totalCopied}, 跳过 ${totalSkipped}, 失败 ${totalErrors}`,
+        results,
+        totalCopied,
+        totalSkipped,
+        totalErrors
+      })
+      res.end()
+    } else {
+      res.json({
+        success: true,
+        message: `批量复制完成: 成功 ${totalCopied}, 跳过 ${totalSkipped}, 失败 ${totalErrors}`,
+        results,
+        totalCopied,
+        totalSkipped,
+        totalErrors
+      })
+    }
+  } catch (error) {
+    console.error('批量复制失败:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
+// API: 批量移动对象 (支持 SSE 进度)
+app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName } = req.params
+  const { items, destinationBucket, overwrite = false } = req.body
+
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: '请提供要移动的对象列表' })
+  }
+
+  // 检测是否请求 SSE
+  const isSSERequest = req.headers.accept === 'text/event-stream'
+
+  if (isSSERequest) {
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders()
+  }
+
+  const targetBucket = destinationBucket || bucketName
+  const totalItems = items.length
+  const results = []
+  let totalMoved = 0
+  let totalSkipped = 0
+  let totalErrors = 0
+
+  try {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      const { sourceKey, destinationKey, isFolder } = item
+
+      // 自身移动检测
+      if (bucketName === targetBucket && sourceKey === destinationKey) {
+        results.push({
+          sourceKey,
+          destinationKey,
+          status: 'skipped',
+          skipReason: '源路径和目标路径相同',
+        })
+        totalSkipped++
+        reportBatchProgress(res, isSSERequest, {
+          current: i + 1,
+          total: totalItems,
+          sourceKey,
+          destKey: destinationKey,
+          stats: { totalMoved, totalSkipped, totalErrors }
+        })
+        continue
+      }
+
+      // 文件夹移动到自身子目录检测
+      if (bucketName === targetBucket && (isFolder || sourceKey.endsWith('/'))) {
+        if (destinationKey.startsWith(sourceKey)) {
+          results.push({
+            sourceKey,
+            destinationKey,
+            status: 'skipped',
+            skipReason: '不能将文件夹移动到自身或子目录中',
+          })
+          totalSkipped++
+          reportBatchProgress(res, isSSERequest, {
+            current: i + 1,
+            total: totalItems,
+            sourceKey,
+            destKey: destinationKey,
+            stats: { totalMoved, totalSkipped, totalErrors }
+          })
+          continue
+        }
+      }
+
+      try {
+        // 检查是否是文件夹
+        if (isFolder || sourceKey.endsWith('/')) {
+          // 文件夹移动：递归复制后删除源
+          let allObjects = []
+          let continuationToken = undefined
+
+          do {
+            const listCommand = new ListObjectsV2Command({
+              Bucket: bucketName,
+              Prefix: sourceKey,
+              ContinuationToken: continuationToken,
+              MaxKeys: 1000,
+            })
+            const listResponse = await r2Client.send(listCommand)
+
+            if (listResponse.Contents) {
+              allObjects = allObjects.concat(listResponse.Contents)
+            }
+
+            continuationToken = listResponse.NextContinuationToken
+          } while (continuationToken)
+
+          if (allObjects.length === 0) {
+            // 空文件夹
+            if (!overwrite) {
+              try {
+                const headCommand = new HeadObjectCommand({
+                  Bucket: targetBucket,
+                  Key: destinationKey,
+                })
+                await r2Client.send(headCommand)
+                results.push({
+                  sourceKey,
+                  destinationKey,
+                  status: 'skipped',
+                  skipReason: '目标已存在',
+                })
+                totalSkipped++
+                reportBatchProgress(res, isSSERequest, {
+                  current: i + 1,
+                  total: totalItems,
+                  sourceKey,
+                  destKey: destinationKey,
+                  stats: { totalMoved, totalSkipped, totalErrors }
+                })
+                continue
+              } catch (headError) {
+                if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
+                  throw headError
+                }
+              }
+            }
+
+            const copyCommand = new CopyObjectCommand({
+              Bucket: targetBucket,
+              CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
+              Key: destinationKey,
+            })
+            await r2Client.send(copyCommand)
+
+            const deleteCommand = new DeleteObjectCommand({
+              Bucket: bucketName,
+              Key: sourceKey,
+            })
+            await r2Client.send(deleteCommand)
+
+            results.push({
+              sourceKey,
+              destinationKey,
+              status: 'success',
+              moved: 1,
+            })
+            totalMoved++
+            continue
+          }
+
+          // 逐个复制子对象
+          let movedCount = 0
+          const copiedKeys = []
+          let hasError = false
+          let errorMsg = ''
+
+          for (const obj of allObjects) {
+            const relativePath = obj.Key.substring(sourceKey.length)
+            const targetObjKey = `${destinationKey}${relativePath}`
+
+            // 冲突检测
+            if (!overwrite) {
+              try {
+                const headCommand = new HeadObjectCommand({
+                  Bucket: targetBucket,
+                  Key: targetObjKey,
+                })
+                await r2Client.send(headCommand)
+                hasError = true
+                errorMsg = `目标路径已存在: ${targetObjKey}`
+                break
+              } catch (headError) {
+                if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
+                  throw headError
+                }
+              }
+            }
+
+            const copyCommand = new CopyObjectCommand({
+              Bucket: targetBucket,
+              CopySource: `${bucketName}/${encodeURIComponent(obj.Key)}`,
+              Key: targetObjKey,
+            })
+            await r2Client.send(copyCommand)
+            copiedKeys.push(obj.Key)
+            movedCount++
+          }
+
+          if (hasError) {
+            results.push({
+              sourceKey,
+              destinationKey,
+              status: 'error',
+              error: errorMsg,
+            })
+            totalErrors++
+          } else {
+            // 批量删除源对象
+            for (let i = 0; i < copiedKeys.length; i += 1000) {
+              const batch = copiedKeys.slice(i, i + 1000)
+              const deleteCommand = new DeleteObjectsCommand({
+                Bucket: bucketName,
+                Delete: {
+                  Objects: batch.map((k) => ({ Key: k })),
+                  Quiet: true,
+                },
+              })
+              await r2Client.send(deleteCommand)
+            }
+
+            results.push({
+              sourceKey,
+              destinationKey,
+              status: 'success',
+              moved: movedCount,
+            })
+            totalMoved += movedCount
+          }
+        } else {
+          // 单文件移动
+          if (!overwrite) {
+            try {
+              const headCommand = new HeadObjectCommand({
+                Bucket: targetBucket,
+                Key: destinationKey,
+              })
+              await r2Client.send(headCommand)
+              results.push({
+                sourceKey,
+                destinationKey,
+                status: 'skipped',
+                skipReason: '目标已存在',
+              })
+              totalSkipped++
+              reportBatchProgress(res, isSSERequest, {
+                current: i + 1,
+                total: totalItems,
+                sourceKey,
+                destKey: destinationKey,
+                stats: { totalMoved, totalSkipped, totalErrors }
+              })
+              continue
+            } catch (headError) {
+              if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
+                throw headError
+              }
+            }
+          }
+
+          // 复制
+          const copyCommand = new CopyObjectCommand({
+            Bucket: targetBucket,
+            CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
+            Key: destinationKey,
+          })
+          await r2Client.send(copyCommand)
+
+          // 删除源
+          const deleteCommand = new DeleteObjectCommand({
+            Bucket: bucketName,
+            Key: sourceKey,
+          })
+          await r2Client.send(deleteCommand)
+
+          results.push({
+            sourceKey,
+            destinationKey,
+            status: 'success',
+            moved: 1,
+          })
+          totalMoved++
+        }
+      } catch (err) {
+        results.push({
+          sourceKey,
+          destinationKey,
+          status: 'error',
+          error: err.message,
+        })
+        totalErrors++
+      }
+
+      reportBatchProgress(res, isSSERequest, {
+        current: i + 1,
+        total: totalItems,
+        sourceKey,
+        destKey: destinationKey,
+        stats: { totalMoved, totalSkipped, totalErrors }
+      })
+    }
+
+    // 发送完成事件或返回 JSON
+    if (isSSERequest) {
+      sendSSEProgress(res, {
+        type: 'complete',
+        success: true,
+        message: `批量移动完成: 成功 ${totalMoved}, 跳过 ${totalSkipped}, 失败 ${totalErrors}`,
+        results,
+        totalMoved,
+        totalSkipped,
+        totalErrors
+      })
+      res.end()
+    } else {
+      res.json({
+        success: true,
+        message: `批量移动完成: 成功 ${totalMoved}, 跳过 ${totalSkipped}, 失败 ${totalErrors}`,
+        results,
+        totalMoved,
+        totalSkipped,
+        totalErrors
+      })
+    }
+  } catch (error) {
+    console.error('批量移动失败:', error)
+    if (isSSERequest) {
+      sendSSEProgress(res, {
+        type: 'error',
+        error: error.message
+      })
+      res.end()
+    } else {
+      res.status(500).json({ error: error.message })
+    }
+  }
+})
+
 // ==================== Multipart Upload APIs ====================
 
 // API: 初始化分块上传

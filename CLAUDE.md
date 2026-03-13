@@ -12,6 +12,10 @@
 - **状态**: Zustand (浏览器端 localStorage / 桌面端文件系统持久化)
 - **API**: AWS S3 SDK (兼容 R2)
 
+## 工具使用和提示
+
+- 多运用 `mcp__serena` 的 LSP 功能（支持 ts 和 js 语言）
+
 ## 架构
 
 ```
@@ -60,20 +64,48 @@ cloudflare-r2-manager/
 │   │   ├── 📁 layout/                # 布局组件 (Sidebar, Header, MainLayout)
 │   │   ├── 📁 config/                # 配置组件 (ConfigPage, SettingsDialog)
 │   │   ├── 📁 bucket/                # 桶操作组件 (CreateBucket, DeleteBucketDialog)
-│   │   ├── 📁 file/                  # 文件操作组件 (FileList, FileGrid, FileUploader, FilePreview)
-│   │   ├── 📁 transfer/              # 传输中心组件 (TransferPage, TaskList, HistoryList)
+│   │   ├── 📁 file/                  # 文件操作组件
+│   │   │   ├── FileList.tsx          # 文件列表（列表/网格视图）
+│   │   │   ├── FileGrid.tsx          # 网格视图项
+│   │   │   ├── FileUploader.tsx      # 文件上传组件
+│   │   │   ├── FilePreview.tsx       # 文件预览组件
+│   │   │   ├── MoveCopyDialog.tsx    # 移动/复制对话框（支持批量模式）
+│   │   │   ├── RenameDialog.tsx      # 重命名对话框
+│   │   │   └── ConflictDialog.tsx    # 冲突处理对话框
+│   │   ├── 📁 transfer/              # 传输中心组件
+│   │   │   ├── TransferPage.tsx      # 传输中心主页面
+│   │   │   ├── TransferTabs.tsx      # 标签页（上传/下载/批量操作/完成）
+│   │   │   ├── TaskList.tsx          # 进行中任务列表
+│   │   │   ├── TaskItem.tsx          # 单个任务项（支持 copy/move）
+│   │   │   ├── HistoryList.tsx       # 历史记录列表
+│   │   │   └── HistoryItem.tsx       # 历史记录项
 │   │   └── 📁 common/                # 通用组件 (Loading, Empty, ThemeProvider, ThemeToggle, FileIcon)
 │   ├── 📁 hooks/                     # 自定义 Hooks (useConfig, useBuckets, useFiles, useUpload)
-│   ├── 📁 services/                  # API 服务层 (api, bucketService, fileService)
-│   ├── 📁 stores/                    # Zustand 状态 (configStore, bucketStore, fileStore, transferStore)
-│   ├── 📁 types/                     # TypeScript 类型 (config, bucket, file, transfer)
+│   ├── 📁 services/                  # API 服务层
+│   │   ├── api.ts                    # 主 API 客户端（含批量复制/移动 + SSE 进度）
+│   │   ├── bucketService.ts          # 桶操作服务
+│   │   ├── fileService.ts            # 文件操作服务（复制/移动/重命名）
+│   │   ├── chunkedUpload.ts          # 分块上传实现
+│   │   └── chunkedDownload.ts        # 分块下载实现
+│   ├── 📁 stores/                    # Zustand 状态
+│   │   ├── configStore.ts            # 配置状态（凭证、并发设置）
+│   │   ├── bucketStore.ts            # 桶列表状态
+│   │   ├── fileStore.ts              # 文件列表状态
+│   │   ├── transferStore.ts          # 传输中心状态（含批量操作任务）
+│   │   └── themeStore.ts             # 主题状态
+│   ├── 📁 types/                     # TypeScript 类型
+│   │   ├── config.ts                 # 配置类型
+│   │   ├── bucket.ts                 # 桶类型
+│   │   ├── file.ts                   # 文件类型（含批量操作类型）
+│   │   ├── transfer.ts               # 传输类型（upload/download/copy/move）
+│   │   └── chunk.ts                  # 分块传输类型
 │   ├── 📁 lib/                       # 工具库 (cn, utils, isTauri, logger, tauriStorage, fileIcons)
 │   ├── 📁 styles/                    # 全局样式
 │   ├── App.tsx                       # 主应用
 │   └── main.tsx                      # 入口文件
 │
 ├── 📁 server/                        # 后端代理服务器 (CommonJS 格式，用于 pkg 打包)
-│   ├── index.js                      # Express 服务器
+│   ├── index.js                      # Express 服务器（含批量复制/移动 API + SSE 进度）
 │   └── package.json                  # 服务端依赖
 │
 ├── 📁 src-tauri/                     # Tauri 桌面端配置
@@ -138,6 +170,7 @@ cloudflare-r2-manager/
 - **全选**: 表头复选框支持全选/取消全选当前层级
 - **批量删除**: 支持递归删除文件夹内容
 - **批量下载**: 获取所有选中项的预签名 URL 并触发下载
+- **批量移动/复制**: 集成到传输中心，支持实时进度反馈
 
 ### 文件操作菜单
 
@@ -170,6 +203,11 @@ cloudflare-r2-manager/
   - [x] 循环引用检测
   - [x] 可折叠文件夹浏览器侧边栏
   - [x] 面包屑路径导航
+  - [x] **批量复制/移动** - Phase 2 集成传输中心
+    - [x] Header 批量操作菜单添加移动/复制选项
+    - [x] MoveCopyDialog 支持批量模式
+    - [x] SSE 实时进度反馈
+    - [x] 传输中心批量操作标签页
 
 ### Phase 3: 体验优化
 - [x] 深色模式（浅色/深色/跟随系统三种模式）

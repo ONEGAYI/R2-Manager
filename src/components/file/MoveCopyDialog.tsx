@@ -35,6 +35,18 @@ interface MoveCopyDialogProps {
   folders: string[] // 当前路径下的文件夹列表
   onConfirm: (sourceKey: string, destinationKey: string, destinationBucket?: string) => Promise<boolean>
   onLoadFolders?: (bucket: string, prefix: string) => Promise<void>
+  // 批量模式
+  batchMode?: boolean
+  batchItems?: Array<{
+    key: string
+    name: string
+    isFolder: boolean
+  }>
+  onBatchConfirm?: (items: Array<{
+    sourceKey: string
+    destinationKey: string
+    isFolder: boolean
+  }>, destinationBucket?: string) => Promise<boolean>
 }
 
 /**
@@ -58,6 +70,10 @@ export function MoveCopyDialog({
   folders,
   onConfirm,
   onLoadFolders,
+  // 批量模式
+  batchMode = false,
+  batchItems = [],
+  onBatchConfirm,
 }: MoveCopyDialogProps) {
   const [destinationPath, setDestinationPath] = useState('')
   const [destinationBucket, setDestinationBucket] = useState('')
@@ -126,24 +142,65 @@ export function MoveCopyDialog({
     }
   }, [onLoadFolders])
 
-  // 计算完整的目标 key
+  // 计算完整的目标 key（单文件模式）
   const destinationKey = useMemo(() => {
-    if (!item) return ''
+    if (batchMode || !item) return ''
     if (!destinationPath) {
       return item.name + (item.isFolder ? '/' : '')
     }
     const path = destinationPath.endsWith('/') ? destinationPath : destinationPath + '/'
     return path + item.name + (item.isFolder ? '/' : '')
-  }, [item, destinationPath])
+  }, [batchMode, item, destinationPath])
 
-  // 检测是否为同桶自身或子目录移动
+  // 批量模式：检测是否有任何项目移动到自身或子目录
+  const batchInvalidMoves = useMemo(() => {
+    if (!batchMode || mode !== 'move') return []
+    if (destinationBucket !== sourceBucket) return []
+    // 检查所有批量项目
+    return batchItems.filter(bi => {
+    const destKey = destinationPath
+      ? (destinationPath.endsWith('/') ? destinationPath : destinationPath + '/') + bi.name + (bi.isFolder ? '/' : '')
+      : bi.name + (bi.isFolder ? '/' : '')
+    return isSelfOrDescendant(bi.key, destKey, bi.isFolder)
+  })
+  }, [batchMode, batchItems, mode, destinationBucket, sourceBucket, destinationPath])
+
+  // 单文件模式：检测是否为同桶自身或子目录移动
   const isInvalidMove = useMemo(() => {
-    if (!item || mode !== 'move') return false
+    if (batchMode || !item || mode !== 'move') return false
     if (destinationBucket !== sourceBucket) return false
     return isSelfOrDescendant(item.key, destinationKey, item.isFolder)
-  }, [item, mode, destinationKey, destinationBucket, sourceBucket])
+  }, [batchMode, item, mode, destinationKey, destinationBucket, sourceBucket])
 
   const handleSubmit = async () => {
+    // 批量模式
+    if (batchMode && batchItems.length > 0 && onBatchConfirm) {
+      setIsLoading(true)
+      setError('')
+
+      try {
+        const items = batchItems.map(bi => ({
+          sourceKey: bi.key,
+          destinationKey: destinationPath
+            ? (destinationPath.endsWith('/') ? destinationPath : destinationPath + '/') + bi.name + (bi.isFolder ? '/' : '')
+            : bi.name + (bi.isFolder ? '/' : ''),
+          isFolder: bi.isFolder
+        }))
+
+        const destBucket = destinationBucket !== sourceBucket ? destinationBucket : undefined
+        const success = await onBatchConfirm(items, destBucket)
+        if (success) {
+          onOpenChange(false)
+        }
+      } catch (err) {
+        setError((err as Error).message)
+      } finally {
+        setIsLoading(false)
+      }
+      return
+    }
+
+    // 单文件模式
     if (!item || !destinationKey || isInvalidMove) return
 
     setIsLoading(true)
@@ -198,6 +255,17 @@ export function MoveCopyDialog({
 
   // 过滤掉当前操作的文件夹
   const availableFolders = useMemo(() => {
+    // 批量模式下过滤所有被移动的文件夹
+    if (batchMode && mode === 'move' && destinationBucket === sourceBucket) {
+      const folderKeys = new Set(batchItems.filter(i => i.isFolder).map(i => i.key))
+      return folders.filter(f => {
+        const folderPath = destinationPath
+          ? (destinationPath.endsWith('/') ? destinationPath : destinationPath + '/') + f + '/'
+          : f + '/'
+        return !folderKeys.has(folderPath)
+      })
+    }
+    // 单文件模式
     if (!item || mode !== 'move' || destinationBucket !== sourceBucket) {
       return folders
     }
@@ -210,13 +278,22 @@ export function MoveCopyDialog({
       }
       return true
     })
-  }, [folders, item, mode, destinationBucket, sourceBucket, destinationPath])
+  }, [folders, item, mode, destinationBucket, sourceBucket, destinationPath, batchMode, batchItems])
 
-  if (!item) return null
+  // 单文件模式且没有 item 时返回 null
+  if (!batchMode && !item) return null
+
+  // 批量模式时计算批量项信息
+  const batchFolderCount = batchItems.filter(i => i.isFolder).length
+  const batchFileCount = batchItems.length - batchFolderCount
+  const batchDescription = batchFolderCount > 0 && batchFileCount > 0
+    ? `${batchFolderCount} 个文件夹和 ${batchFileCount} 个文件`
+    : batchFolderCount > 0
+      ? `${batchFolderCount} 个文件夹`
+      : `${batchFileCount} 个文件`
 
   const ModeIcon = mode === 'move' ? FolderInput : Copy
   const modeText = mode === 'move' ? '移动' : '复制'
-  const isCrossBucket = destinationBucket !== sourceBucket
 
   // 解析面包屑
   const breadcrumbs = destinationPath
@@ -233,12 +310,24 @@ export function MoveCopyDialog({
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <ModeIcon className="h-5 w-5" />
-                {modeText}{item.isFolder ? '文件夹' : '文件'}
+                {batchMode
+                  ? `批量${modeText}`
+                  : `${modeText}${item?.isFolder ? '文件夹' : '文件'}`
+                }
               </DialogTitle>
               <DialogDescription className="pt-2">
-                将
-                <span className="font-semibold text-foreground mx-1">"{item.name}"</span>
-                {modeText}到指定位置
+                {batchMode ? (
+                  <>
+                    将 <span className="font-semibold text-foreground mx-1">{batchDescription}</span>
+                    {modeText}到指定位置
+                  </>
+                ) : (
+                  <>
+                    将
+                    <span className="font-semibold text-foreground mx-1">"{item?.name}"</span>
+                    {modeText}到指定位置
+                  </>
+                )}
               </DialogDescription>
             </DialogHeader>
 
@@ -365,12 +454,19 @@ export function MoveCopyDialog({
             </div>
 
             {/* 错误提示 */}
-            {isInvalidMove && (
+            {isInvalidMove && !batchMode && item && (
               <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3">
                 <p className="text-sm text-destructive">
                   {item.isFolder
                     ? '不能将文件夹移动到自身或子目录中'
                     : '源路径和目标路径不能相同'}
+                </p>
+              </div>
+            )}
+            {batchInvalidMoves.length > 0 && batchMode && (
+              <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3">
+                <p className="text-sm text-amber-600">
+                  {batchInvalidMoves.length} 个项目无法移动到自身或子目录中，将被跳过
                 </p>
               </div>
             )}
@@ -386,7 +482,11 @@ export function MoveCopyDialog({
               </Button>
               <Button
                 onClick={handleSubmit}
-                disabled={!destinationKey || isLoading || isInvalidMove}
+                disabled={
+                  isLoading ||
+                  isInvalidMove ||
+                  (batchMode ? batchItems.length === 0 : !destinationKey)
+                }
               >
                 {isLoading ? '处理中...' : modeText}
               </Button>

@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.8] - 2026-03-14
+
+### Added
+- **批量复制/移动功能** - Phase 2 集成到传输中心
+  - `server/index.js` - 新增 `/batch-copy` 和 `/batch-move` API 端点，支持 SSE 实时进度
+  - `src/services/api.ts` - 新增 `batchCopyWithProgress()` 和 `batchMoveWithProgress()` 方法
+  - `src/stores/transferStore.ts` - 新增 `addBatchOperationTask()` 和 `updateBatchProgress()` 方法
+  - `src/types/transfer.ts` - 新增 `copy`/`move` 传输方向，批量操作相关类型
+  - `src/components/file/ConflictDialog.tsx` - 冲突对话框组件（覆盖/跳过/取消）
+  - `src/components/file/MoveCopyDialog.tsx` - 支持批量模式 (`batchMode`)
+  - `src/components/transfer/TransferTabs.tsx` - 新增"批量操作"和"批量完成"标签页
+  - `src/components/layout/Header.tsx` - 批量操作菜单添加"移动/复制选中项"
+
+### Improved
+- **传输中心扩展** - 支持批量操作任务显示
+  - TaskItem 显示复制/移动图标和进度（X/Y 项格式）
+  - TransferPage 支持批量操作标签页筛选
+  - 批量操作历史记录（暂不支持清空）
+- **SSE 实时进度** - 批量操作使用 Server-Sent Events 推送进度
+  - 封装 `reportBatchProgress()` 辅助函数
+  - XHR 流式读取 SSE 事件
+  - 实时更新已完成项数和百分比
+
+### Technical
+- 批量操作通过 XHR + SSE 实现实时进度反馈
+- 移动操作检测"移动到自身或子目录"并自动跳过
+- 异步执行批量操作，不阻塞对话框关闭
+- 完成后自动刷新文件列表
+
+---
+
 ## [0.9.7] - 2026-03-13
 
 ### Added

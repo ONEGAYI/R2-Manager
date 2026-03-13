@@ -81,7 +81,20 @@ function App() {
     open: boolean
     mode: 'move' | 'copy'
     item: { key: string; name: string; isFolder: boolean } | null
+    // 批量模式
+    batchMode?: boolean
+    batchItems?: Array<{ key: string; name: string; isFolder: boolean }>
   }>({ open: false, mode: 'move', item: null })
+
+  // 打开移动/复制对话框（单文件模式)
+  const openMoveCopyDialog = useCallback((key: string, name: string, isFolder: boolean, mode: 'move' | 'copy') => {
+    setMoveCopyDialog({ open: true, mode, item: { key, name, isFolder }, batchMode: false })
+  }, [])
+
+  // 打开批量移动/复制对话框
+  const openBatchMoveCopyDialog = useCallback((items: Array<{ key: string; name: string; isFolder: boolean }>, mode: 'move' | 'copy') => {
+    setMoveCopyDialog({ open: true, mode, item: null, batchMode: true, batchItems: items })
+  }, [])
 
   // 目标路径下的文件夹列表（用于移动/复制对话框）
   const [targetFolders, setTargetFolders] = useState<string[]>([])
@@ -993,11 +1006,6 @@ function App() {
     setRenameDialog({ open: true, item: { key, name, isFolder } })
   }, [])
 
-  // 打开移动/复制对话框
-  const openMoveCopyDialog = useCallback((key: string, name: string, isFolder: boolean, mode: 'move' | 'copy') => {
-    setMoveCopyDialog({ open: true, mode, item: { key, name, isFolder } })
-  }, [])
-
   // 处理重命名
   const handleRename = useCallback(async (sourceKey: string, newName: string): Promise<boolean> => {
     if (!selectedBucket) return false
@@ -1063,6 +1071,147 @@ function App() {
     }
   }, [selectedBucket, currentPrefix, refreshFiles])
 
+  // 处理批量移动 - 集成传输中心
+  const handleBatchMove = useCallback(async (
+    items: Array<{ sourceKey: string; destinationKey: string; isFolder: boolean }>,
+    destinationBucket?: string
+  ): Promise<boolean> => {
+    if (!selectedBucket) return false
+
+    const { addBatchOperationTask, updateBatchProgress, moveToHistory } = useTransferStore.getState()
+
+    // 创建传输任务
+    const taskId = addBatchOperationTask({
+      direction: 'move',
+      fileName: `${items.length} 个项目`,
+      bucketName: selectedBucket,
+      sourceKey: items[0]?.sourceKey || '',
+      destinationKey: items[0]?.destinationKey || '',
+      destinationBucket,
+      totalItems: items.length,
+    })
+
+    // 异步执行操作（不阻塞对话框关闭）
+    ;(async () => {
+      try {
+        const result = await api.batchMoveWithProgress(
+          selectedBucket,
+          items,
+          destinationBucket,
+          false,
+          (progressData) => {
+            // 更新进度
+            if (progressData.type === 'progress' && progressData.current && progressData.total) {
+              const progress = Math.round((progressData.current / progressData.total) * 100)
+              updateBatchProgress(taskId, progressData.current, progress)
+            }
+          }
+        )
+
+        // 更新最终进度（跳过的也计入已完成）
+        const completedItems = result.totalMoved + (result.totalSkipped || 0)
+        updateBatchProgress(taskId, completedItems, 100)
+
+        // 移动到历史记录
+        const task = useTransferStore.getState().getTaskById(taskId)
+        if (task) {
+          const parts = []
+          if (result.totalSkipped > 0) parts.push(`${result.totalSkipped} 项跳过`)
+          if (result.totalErrors > 0) parts.push(`${result.totalErrors} 项失败`)
+          if (parts.length > 0) {
+            moveToHistory(task, result.totalErrors > 0 ? 'error' : 'completed', parts.join(', '))
+          } else {
+            moveToHistory(task, 'completed')
+          }
+        }
+
+        // 刷新文件列表
+        refreshFiles(selectedBucket, currentPrefix)
+        clearSelection()
+      } catch (error) {
+        console.error('Batch move failed:', error)
+        const task = useTransferStore.getState().getTaskById(taskId)
+        if (task) {
+          moveToHistory(task, 'error', (error as Error).message)
+        }
+      }
+    })()
+
+    // 立即返回 true，让对话框关闭
+    return true
+  }, [selectedBucket, currentPrefix, refreshFiles, clearSelection])
+
+  // 处理批量复制 - 集成传输中心
+  const handleBatchCopy = useCallback(async (items: Array<{
+    sourceKey: string
+    destinationKey: string
+    isFolder: boolean
+  }>, destinationBucket?: string): Promise<boolean> => {
+    if (!selectedBucket) return false
+
+    const { addBatchOperationTask, updateBatchProgress, moveToHistory } = useTransferStore.getState()
+
+    // 创建传输任务
+    const taskId = addBatchOperationTask({
+      direction: 'copy',
+      fileName: `${items.length} 个项目`,
+      bucketName: selectedBucket,
+      sourceKey: items[0]?.sourceKey || '',
+      destinationKey: items[0]?.destinationKey || '',
+      destinationBucket,
+      totalItems: items.length,
+    })
+
+    // 异步执行操作（不阻塞对话框关闭）
+    ;(async () => {
+      try {
+        const result = await api.batchCopyWithProgress(
+          selectedBucket,
+          items,
+          destinationBucket,
+          false,
+          (progressData) => {
+            // 更新进度
+            if (progressData.type === 'progress' && progressData.current && progressData.total) {
+              const progress = Math.round((progressData.current / progressData.total) * 100)
+              updateBatchProgress(taskId, progressData.current, progress)
+            }
+          }
+        )
+
+        // 完成后更新状态（跳过的也计入已完成）
+        const completedItems = result.totalCopied + (result.totalSkipped || 0)
+        updateBatchProgress(taskId, completedItems, 100)
+
+        // 移动到历史记录
+        const task = useTransferStore.getState().getTaskById(taskId)
+        if (task) {
+          const parts = []
+          if (result.totalSkipped > 0) parts.push(`${result.totalSkipped} 项跳过`)
+          if (result.totalErrors > 0) parts.push(`${result.totalErrors} 项失败`)
+          if (parts.length > 0) {
+            moveToHistory(task, result.totalErrors > 0 ? 'error' : 'completed', parts.join(', '))
+          } else {
+            moveToHistory(task, 'completed')
+          }
+        }
+
+        // 刷新文件列表
+        refreshFiles(selectedBucket, currentPrefix)
+        clearSelection()
+      } catch (error) {
+        console.error('Batch copy failed:', error)
+        const task = useTransferStore.getState().getTaskById(taskId)
+        if (task) {
+          moveToHistory(task, 'error', (error as Error).message)
+        }
+      }
+    })()
+
+    // 立即返回 true，让对话框关闭
+    return true
+  }, [selectedBucket, currentPrefix, refreshFiles, clearSelection])
+
   // 未配置凭证或强制显示配置页面时显示配置页面
   if (!hasValidCredentials || forceShowConfig) {
     return <ConfigPage onConfigured={handleConfigured} />
@@ -1115,6 +1264,20 @@ function App() {
               }}
               onBatchDelete={handleBatchDelete}
               onBatchDownload={handleBatchDownload}
+              onBatchMove={() => {
+                const items = Array.from(selectedKeys).map(key => {
+                  const name = key.replace(/\/$/, '').split('/').pop() || ''
+                  return { key, name, isFolder: key.endsWith('/') }
+                })
+                openBatchMoveCopyDialog(items, 'move')
+              }}
+              onBatchCopy={() => {
+                const items = Array.from(selectedKeys).map(key => {
+                  const name = key.replace(/\/$/, '').split('/').pop() || ''
+                  return { key, name, isFolder: key.endsWith('/') }
+                })
+                openBatchMoveCopyDialog(items, 'copy')
+              }}
             />
 
             {/* 文件列表区域 - 可滚动容器 */}
@@ -1296,7 +1459,10 @@ function App() {
         buckets={buckets.map((b) => b.name)}
         folders={targetFolders}
         onConfirm={moveCopyDialog.mode === 'move' ? handleMove : handleCopy}
+        onBatchConfirm={moveCopyDialog.mode === 'move' ? handleBatchMove : handleBatchCopy}
         onLoadFolders={loadTargetFolders}
+        batchMode={moveCopyDialog.batchMode}
+        batchItems={moveCopyDialog.batchItems}
       />
     </>
   )

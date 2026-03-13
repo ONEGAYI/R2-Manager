@@ -66,6 +66,30 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
   const loaded = task.loadedBytes || 0
   const isError = task.status === 'error'
   const isPending = task.status === 'pending'
+  const isBatchOperation = task.direction === 'copy' || task.direction === 'move'
+
+  // 获取操作类型图标
+  const getOperationIcon = () => {
+    if (isError) return '❌'
+    switch (task.direction) {
+      case 'upload': return '📤'
+      case 'download': return '📥'
+      case 'copy': return '📋'
+      case 'move': return '📁'
+      default: return '📄'
+    }
+  }
+
+  // 获取操作类型文本
+  const getOperationText = () => {
+    switch (task.direction) {
+      case 'upload': return '上传'
+      case 'download': return '下载'
+      case 'copy': return '复制'
+      case 'move': return '移动'
+      default: return '传输'
+    }
+  }
 
   return (
     <motion.div
@@ -80,9 +104,7 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
       {/* 文件图标和信息 */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-lg">
-            {isError ? '❌' : task.direction === 'upload' ? '📤' : '📥'}
-          </span>
+          <span className="text-lg">{getOperationIcon()}</span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium truncate" title={fileName}>
               {fileName}
@@ -93,7 +115,13 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                {task.bucketName} · {formatSize(task.fileSize)}
+                {task.bucketName}
+                {isBatchOperation && task.totalItems
+                  ? ` · ${task.totalItems} 个项目`
+                  : task.fileSize > 0
+                    ? ` · ${formatSize(task.fileSize)}`
+                    : ''
+                }
               </p>
             )}
           </div>
@@ -103,16 +131,22 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
       {/* 进度信息 */}
       <div className="flex-shrink-0 text-right min-w-[100px]">
         {isError ? (
-          <p className="text-sm font-medium text-destructive whitespace-nowrap">上传失败</p>
+          <p className="text-sm font-medium text-destructive whitespace-nowrap">{getOperationText()}失败</p>
         ) : isPending ? (
-          <p className="text-sm font-medium text-muted-foreground whitespace-nowrap">等待中...</p>
+          <p className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+            {isBatchOperation ? '准备中...' : '等待中...'}
+          </p>
+        ) : isBatchOperation && task.totalItems ? (
+          <p className="text-sm font-medium whitespace-nowrap">
+            {task.completedItems || 0} / {task.totalItems} 项
+          </p>
         ) : (
           <p className="text-sm font-medium whitespace-nowrap">
             {formatSize(loaded)} / {formatSize(task.fileSize)}
           </p>
         )}
         <p className="text-xs text-muted-foreground whitespace-nowrap">
-          {isError ? '点击关闭' : isPending ? '排队等待可用线程' : formatSpeed(task.speed)}
+          {isError ? '点击关闭' : isPending ? (isBatchOperation ? '正在处理' : '排队等待可用线程') : isBatchOperation ? '处理中...' : formatSpeed(task.speed)}
         </p>
       </div>
 

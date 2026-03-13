@@ -1,4 +1,4 @@
-import { Upload, Download, CheckCircle } from 'lucide-react'
+import { Upload, Download, CheckCircle, Copy } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { TransferTab } from '@/types/transfer'
 
@@ -7,8 +7,10 @@ interface TransferTabsProps {
   onTabChange: (tab: TransferTab) => void
   uploadingCount: number
   downloadingCount: number
+  batchOperationsCount: number
   uploadCompletedCount: number
   downloadCompletedCount: number
+  batchCompletedCount: number
 }
 
 interface TabConfig {
@@ -23,8 +25,10 @@ export function TransferTabs({
   onTabChange,
   uploadingCount,
   downloadingCount,
+  batchOperationsCount,
   uploadCompletedCount,
   downloadCompletedCount,
+  batchCompletedCount,
 }: TransferTabsProps) {
   const tabs: TabConfig[] = [
     {
@@ -40,6 +44,12 @@ export function TransferTabs({
       count: downloadingCount,
     },
     {
+      id: 'batchOperations',
+      label: '批量操作',
+      icon: <Copy className="w-4 h-4" />,
+      count: batchOperationsCount,
+    },
+    {
       id: 'uploadCompleted',
       label: '上传完成',
       icon: <CheckCircle className="w-4 h-4" />,
@@ -50,6 +60,12 @@ export function TransferTabs({
       label: '下载完成',
       icon: <CheckCircle className="w-4 h-4" />,
       count: downloadCompletedCount,
+    },
+    {
+      id: 'batchCompleted',
+      label: '批量完成',
+      icon: <CheckCircle className="w-4 h-4" />,
+      count: batchCompletedCount,
     },
   ]
 
