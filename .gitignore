@@ -53,3 +53,6 @@ src-tauri/binaries/*.exe
 
 # pkg cache (避免 EBUSY 错误时清理)
 .pkg-cache/
+
+# temp files
+local_temp/

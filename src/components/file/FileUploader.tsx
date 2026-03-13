@@ -15,11 +15,23 @@ export function FileUploader({ uploads, onDrop, onRemove }: FileUploaderProps) {
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
-    setIsDragging(true)
+    e.stopPropagation()
+    // 检查是否有文件
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragging(true)
+    }
   }, [])
 
-  const handleDragLeave = useCallback(() => {
-    setIsDragging(false)
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    // 只有当离开拖拽区域时才重置状态
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX
+    const y = e.clientY
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      setIsDragging(false)
+    }
   }, [])
 
   const handleDrop = useCallback(

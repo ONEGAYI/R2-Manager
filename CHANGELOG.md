@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.5] - 2026-03-13
+
+### Fixed
+- **拖拽上传功能修复** - 修复拖拽文件到上传区域不生效的问题
+  - Tauri 客户端：添加 `dragDropEnabled: false` 禁用 Tauri 默认拖拽拦截
+  - 网页端：改进拖拽事件处理，添加 `stopPropagation()` 防止事件冒泡
+  - 精确的边界检测，只在真正离开拖拽区域时重置状态
+
+---
+
 ## [0.9.4] - 2026-03-13
 
 ### Added
