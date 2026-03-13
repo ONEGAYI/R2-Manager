@@ -107,6 +107,8 @@ function App() {
     setConnected,
     maxUploadThreads,
     maxDownloadThreads,
+    uploadChunkStep,
+    downloadChunkStep,
   } = useConfigStore()
 
   const {
@@ -313,6 +315,7 @@ function App() {
               taskId,
               fileName,
               maxConcurrency: maxDownloadThreads,
+              chunkStep: downloadChunkStep,
               onProgress: (loaded, total, speed) => {
                 const progress = total > 0 ? Math.round((loaded / total) * 100) : 0
                 updateTask(taskId, { progress, loadedBytes: loaded, speed })
@@ -550,6 +553,7 @@ function App() {
             key,
             file,
             maxConcurrency: maxUploadThreads,
+            chunkStep: uploadChunkStep,
             onProgress: (loaded, total, speed) => {
               const progress = Math.round((loaded / total) * 100)
               updateTask(taskId, { progress, loadedBytes: loaded, speed })
@@ -741,6 +745,7 @@ function App() {
         key: pausedState.uploaderState.key,
         file,
         maxConcurrency: maxUploadThreads,
+        chunkStep: uploadChunkStep,
         onProgress: (loaded, total, speed) => {
           const progress = Math.round((loaded / total) * 100)
           updateTask(taskId, { progress, loadedBytes: loaded, speed })
@@ -852,6 +857,7 @@ function App() {
         taskId: pausedState.downloaderState.taskId,
         fileName: pausedState.downloaderState.fileName,
         maxConcurrency: maxDownloadThreads,
+        chunkStep: downloadChunkStep,
         onProgress: (loaded, total, speed) => {
           const progress = Math.round((loaded / total) * 100)
           updateTask(taskId, { progress, loadedBytes: loaded, speed })

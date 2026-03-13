@@ -52,7 +52,7 @@ npm run dev:server  # 仅后端
 cloudflare-r2-manager/
 ├── 📁 src/
 │   ├── 📁 components/
-│   │   ├── 📁 ui/                    # shadcn/ui 基础组件
+│   │   ├── 📁 ui/                    # shadcn/ui 基础组件 (button, dialog, slider, toast...)
 │   │   ├── 📁 layout/                # 布局组件 (Sidebar, Header, MainLayout)
 │   │   ├── 📁 config/                # 配置组件 (ConfigPage, SettingsDialog)
 │   │   ├── 📁 bucket/                # 桶操作组件 (CreateBucket, DeleteBucketDialog)
@@ -87,7 +87,9 @@ cloudflare-r2-manager/
 ├── CHANGELOG.md                      # 变更日志
 ├── Build.md                          # 桌面端打包指南
 ├── 📁 scripts/                       # 脚本目录
-│   └── kill.bat                      # 终止端口占用进程
+│   ├── kill.bat                      # 终止端口占用进程
+│   ├── get-etag.js                   # 获取文件 ETag (S3 分块上传校验)
+│   └── etag.config.json              # ETag 计算配置
 ├── bump-version.js                   # 版本号更新脚本
 ├── build.bat                         # 一键打包脚本
 ├── clean.bat                         # 清理构建产物脚本
@@ -175,7 +177,8 @@ cloudflare-r2-manager/
   - [x] 上传暂停/恢复（中断 XHR、服务器分块查询、状态持久化）
   - [x] 下载暂停/恢复（中断流读取器、IndexedDB 缓存、状态持久化）
   - [x] **下载断点续传**（真正的断点续传，从暂停位置继续而非重新下载）
-  - [ ] 优化分块机制（根据固定间隔而非文件大小）
+    - [ ] bug? offset is out of boundry（多次暂停恢复后）
+  - [x] 优化分块机制（根据固定间隔而非文件大小）
 - [x] 响应式布局、面包屑导航布局优化
 - [ ] 动效优化
 - [ ] 键盘快捷键

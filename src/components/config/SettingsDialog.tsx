@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Key, Eye, EyeOff, Loader2, Trash2, CheckCircle, RefreshCw, Settings2, ShieldAlert, FolderOpen } from 'lucide-react'
+import { Key, Eye, EyeOff, Loader2, Trash2, CheckCircle, RefreshCw, Settings2, ShieldAlert, FolderOpen, RotateCcw } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Dialog,
@@ -10,10 +10,17 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useConfigStore } from '@/stores/configStore'
+import { Slider } from '@/components/ui/slider'
+import { useConfigStore, DEFAULT_CONFIG } from '@/stores/configStore'
 import { api } from '@/services/api'
 import { cn } from '@/lib/cn'
 import { isTauri } from '@/lib/isTauri'
+import {
+  MIN_UPLOAD_CHUNK_STEP,
+  MAX_UPLOAD_CHUNK_STEP,
+  MIN_DOWNLOAD_CHUNK_STEP,
+  MAX_DOWNLOAD_CHUNK_STEP,
+} from '@/types/chunk'
 
 type SettingsTab = 'credentials' | 'concurrency' | 'system' | 'danger'
 
@@ -47,12 +54,16 @@ export function SettingsDialog({
     secretAccessKey,
     maxUploadThreads,
     maxDownloadThreads,
+    uploadChunkStep,
+    downloadChunkStep,
     defaultDownloadPath,
     setCredentials,
     clearCredentials,
     setConnected,
     setConcurrencySettings,
     setDownloadPath,
+    setChunkStepSettings,
+    resetToDefaults,
   } = useConfigStore()
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('credentials')
@@ -64,6 +75,8 @@ export function SettingsDialog({
   const [concurrencyData, setConcurrencyData] = useState({
     maxUploadThreads,
     maxDownloadThreads,
+    uploadChunkStepMB: uploadChunkStep / (1024 * 1024),
+    downloadChunkStepMB: downloadChunkStep / (1024 * 1024),
     defaultDownloadPath,
   })
 
@@ -72,9 +85,11 @@ export function SettingsDialog({
     setConcurrencyData({
       maxUploadThreads,
       maxDownloadThreads,
+      uploadChunkStepMB: uploadChunkStep / (1024 * 1024),
+      downloadChunkStepMB: downloadChunkStep / (1024 * 1024),
       defaultDownloadPath,
     })
-  }, [maxUploadThreads, maxDownloadThreads, defaultDownloadPath])
+  }, [maxUploadThreads, maxDownloadThreads, uploadChunkStep, downloadChunkStep, defaultDownloadPath])
 
   const [showSecret, setShowSecret] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -115,6 +130,10 @@ export function SettingsDialog({
     setConcurrencySettings({
       maxUploadThreads: concurrencyData.maxUploadThreads,
       maxDownloadThreads: concurrencyData.maxDownloadThreads,
+    })
+    setChunkStepSettings({
+      uploadChunkStep: concurrencyData.uploadChunkStepMB * 1024 * 1024,
+      downloadChunkStep: concurrencyData.downloadChunkStepMB * 1024 * 1024,
     })
     setDownloadPath(concurrencyData.defaultDownloadPath)
 
@@ -238,104 +257,174 @@ export function SettingsDialog({
   )
 
   // 渲染并发设置页面
-  const renderConcurrencyTab = () => (
-    <div className="space-y-4 py-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1.5">
-          <label className="text-xs text-muted-foreground">最大上传并发数</label>
-          <Input
-            type="number"
-            min={1}
-            max={10}
-            value={concurrencyData.maxUploadThreads}
-            onChange={(e) =>
-              setConcurrencyData((prev) => ({
-                ...prev,
-                maxUploadThreads: Math.max(1, Math.min(10, parseInt(e.target.value) || 4)),
-              }))
-            }
-            className="font-mono text-sm"
-          />
-        </div>
+  const renderConcurrencyTab = () => {
+    const minUploadStepMB = MIN_UPLOAD_CHUNK_STEP / (1024 * 1024)
+    const maxUploadStepMB = MAX_UPLOAD_CHUNK_STEP / (1024 * 1024)
+    const minDownloadStepMB = MIN_DOWNLOAD_CHUNK_STEP / (1024 * 1024)
+    const maxDownloadStepMB = MAX_DOWNLOAD_CHUNK_STEP / (1024 * 1024)
 
-        <div className="space-y-1.5">
-          <label className="text-xs text-muted-foreground">最大下载并发数</label>
-          <Input
-            type="number"
-            min={1}
-            max={10}
-            value={concurrencyData.maxDownloadThreads}
-            onChange={(e) =>
-              setConcurrencyData((prev) => ({
-                ...prev,
-                maxDownloadThreads: Math.max(1, Math.min(10, parseInt(e.target.value) || 4)),
-              }))
-            }
-            className="font-mono text-sm"
-          />
-        </div>
-      </div>
-
-      <p className="text-xs text-muted-foreground">
-        限制同时上传/下载的文件数量（1-10），较高的值可能会增加系统负载
-      </p>
-
-      {/* 下载路径配置 */}
-      <div className="space-y-1.5">
-        <label className="text-xs text-muted-foreground">默认下载路径</label>
-        {isTauri() ? (
-          <div className="flex gap-2">
+    return (
+      <div className="space-y-4 py-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">最大上传并发数</label>
             <Input
-              value={concurrencyData.defaultDownloadPath || ''}
+              type="number"
+              min={1}
+              max={10}
+              value={concurrencyData.maxUploadThreads}
               onChange={(e) =>
                 setConcurrencyData((prev) => ({
                   ...prev,
-                  defaultDownloadPath: e.target.value,
+                  maxUploadThreads: Math.max(1, Math.min(10, parseInt(e.target.value) || 4)),
                 }))
               }
-              placeholder="~/Downloads"
-              className="font-mono text-sm flex-1"
+              className="font-mono text-sm"
             />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={async () => {
-                // Tauri 文件夹选择器
-                try {
-                  const { open } = await import('@tauri-apps/plugin-dialog')
-                  const selected = await open({
-                    directory: true,
-                    multiple: false,
-                    title: '选择下载路径',
-                  })
-                  if (selected) {
-                    setConcurrencyData((prev) => ({
-                      ...prev,
-                      defaultDownloadPath: selected as string,
-                    }))
-                  }
-                } catch (error) {
-                  console.error('Failed to open folder picker:', error)
-                }
-              }}
-            >
-              <FolderOpen className="w-4 h-4" />
-            </Button>
           </div>
-        ) : (
-          <div className="p-3 rounded-md bg-muted/30 text-sm text-muted-foreground">
-            浏览器端使用系统默认下载路径
-          </div>
-        )}
-      </div>
 
-      <div className="flex justify-end">
-        <Button size="sm" onClick={handleSave}>
-          保存
-        </Button>
+          <div className="space-y-1.5">
+            <label className="text-xs text-muted-foreground">最大下载并发数</label>
+            <Input
+              type="number"
+              min={1}
+              max={10}
+              value={concurrencyData.maxDownloadThreads}
+              onChange={(e) =>
+                setConcurrencyData((prev) => ({
+                  ...prev,
+                  maxDownloadThreads: Math.max(1, Math.min(10, parseInt(e.target.value) || 4)),
+                }))
+              }
+              className="font-mono text-sm"
+            />
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          限制同时上传/下载的文件数量（1-10），较高的值可能会增加系统负载
+        </p>
+
+        {/* 分块步长设置 */}
+        <div className="pt-2 border-t">
+          <h4 className="text-sm font-medium mb-3">分块设置</h4>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-muted-foreground">
+                  上传分块大小
+                </label>
+                <span className="text-xs font-mono text-foreground">
+                  {concurrencyData.uploadChunkStepMB} MB
+                </span>
+              </div>
+              <Slider
+                min={minUploadStepMB}
+                max={maxUploadStepMB}
+                step={1}
+                value={[concurrencyData.uploadChunkStepMB]}
+                onValueChange={([value]) =>
+                  setConcurrencyData((prev) => ({
+                    ...prev,
+                    uploadChunkStepMB: value,
+                  }))
+                }
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{minUploadStepMB} MB</span>
+                <span>{maxUploadStepMB} MB</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-muted-foreground">
+                  下载分块大小
+                </label>
+                <span className="text-xs font-mono text-foreground">
+                  {concurrencyData.downloadChunkStepMB} MB
+                </span>
+              </div>
+              <Slider
+                min={minDownloadStepMB}
+                max={maxDownloadStepMB}
+                step={1}
+                value={[concurrencyData.downloadChunkStepMB]}
+                onValueChange={([value]) =>
+                  setConcurrencyData((prev) => ({
+                    ...prev,
+                    downloadChunkStepMB: value,
+                  }))
+                }
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{minDownloadStepMB} MB</span>
+                <span>{maxDownloadStepMB} MB</span>
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            较小的分块提供更频繁的进度反馈，较大的分块减少请求开销
+          </p>
+        </div>
+
+        {/* 下载路径配置 */}
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground">默认下载路径</label>
+          {isTauri() ? (
+            <div className="flex gap-2">
+              <Input
+                value={concurrencyData.defaultDownloadPath || ''}
+                onChange={(e) =>
+                  setConcurrencyData((prev) => ({
+                    ...prev,
+                    defaultDownloadPath: e.target.value,
+                  }))
+                }
+                placeholder="~/Downloads"
+                className="font-mono text-sm flex-1"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  // Tauri 文件夹选择器
+                  try {
+                    const { open } = await import('@tauri-apps/plugin-dialog')
+                    const selected = await open({
+                      directory: true,
+                      multiple: false,
+                      title: '选择下载路径',
+                    })
+                    if (selected) {
+                      setConcurrencyData((prev) => ({
+                        ...prev,
+                        defaultDownloadPath: selected as string,
+                      }))
+                    }
+                  } catch (error) {
+                    console.error('Failed to open folder picker:', error)
+                  }
+                }}
+              >
+                <FolderOpen className="w-4 h-4" />
+              </Button>
+            </div>
+          ) : (
+            <div className="p-3 rounded-md bg-muted/30 text-sm text-muted-foreground">
+              浏览器端使用系统默认下载路径
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end">
+          <Button size="sm" onClick={handleSave}>
+            保存
+          </Button>
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   // 渲染系统设置页面
   const renderSystemTab = () => (
@@ -359,6 +448,36 @@ export function SettingsDialog({
             <RefreshCw className="w-4 h-4 mr-1" />
           )}
           {isRestarting ? '重启中...' : '重启'}
+        </Button>
+      </div>
+
+      <div className="flex items-center justify-between p-3 rounded-lg border bg-muted/30">
+        <div>
+          <p className="text-sm font-medium">重置默认值</p>
+          <p className="text-xs text-muted-foreground">
+            恢复所有设置为默认值（保留 R2 凭证）
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            if (confirm('确定要重置所有设置为默认值吗？\n\n这将重置：主题、视图模式、并发数、分块大小、下载路径等。\nR2 凭证将被保留。')) {
+              resetToDefaults()
+              // 同步本地状态
+              setConcurrencyData({
+                maxUploadThreads: DEFAULT_CONFIG.maxUploadThreads,
+                maxDownloadThreads: DEFAULT_CONFIG.maxDownloadThreads,
+                uploadChunkStepMB: DEFAULT_CONFIG.uploadChunkStep / (1024 * 1024),
+                downloadChunkStepMB: DEFAULT_CONFIG.downloadChunkStep / (1024 * 1024),
+                defaultDownloadPath: DEFAULT_CONFIG.defaultDownloadPath,
+              })
+              alert('设置已重置为默认值')
+            }
+          }}
+        >
+          <RotateCcw className="w-4 h-4 mr-1" />
+          重置
         </Button>
       </div>
 

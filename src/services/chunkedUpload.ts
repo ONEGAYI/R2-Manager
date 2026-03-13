@@ -5,18 +5,15 @@
  */
 
 import type { ChunkUploadInfo, CompletedPart, ChunkedUploaderState, ListPartsResponse } from '@/types/chunk'
+import {
+  MIN_UPLOAD_CHUNK_STEP,
+  MAX_UPLOAD_CHUNK_STEP,
+  DEFAULT_UPLOAD_CHUNK_STEP,
+  S3_MAX_PART_COUNT,
+} from '@/types/chunk'
 import { transferLogger } from '@/lib/transferLogger'
 
 const API_BASE = 'http://localhost:3001/api'
-
-/** 最小分块大小 (S3 限制) */
-const MIN_PART_SIZE = 5 * 1024 * 1024 // 5MB
-
-/** 推荐分块大小 */
-const RECOMMENDED_PART_SIZE = 10 * 1024 * 1024 // 10MB
-
-/** 最大分块数 (S3 限制) */
-const MAX_PART_COUNT = 10000
 
 /**
  * 进度回调函数类型
@@ -39,6 +36,8 @@ export interface ChunkedUploaderOptions {
   file: File
   /** 最大并发线程数 */
   maxConcurrency?: number
+  /** 分块步长（字节） */
+  chunkStep?: number
   /** 进度回调 */
   onProgress?: ProgressCallback
 }
@@ -67,6 +66,7 @@ export class ChunkedUploader {
   private file: File
   private maxConcurrency: number
   private onProgress?: ProgressCallback
+  private chunkStep: number
 
   private uploadId: string | null = null
   private parts: ChunkUploadInfo[] = []
@@ -82,7 +82,7 @@ export class ChunkedUploader {
   private activeXhrs: Map<number, XMLHttpRequest> = new Map()
 
   /** 分块大小（用于恢复） */
-  private partSize: number = RECOMMENDED_PART_SIZE
+  private partSize: number = DEFAULT_UPLOAD_CHUNK_STEP
 
   /** 进度报告节流间隔（毫秒） */
   private static readonly PROGRESS_THROTTLE_MS = 200
@@ -93,6 +93,11 @@ export class ChunkedUploader {
     this.file = options.file
     this.maxConcurrency = options.maxConcurrency ?? 4
     this.onProgress = options.onProgress
+    // Clamp 分块步长到有效范围
+    this.chunkStep = Math.max(
+      MIN_UPLOAD_CHUNK_STEP,
+      Math.min(MAX_UPLOAD_CHUNK_STEP, options.chunkStep ?? DEFAULT_UPLOAD_CHUNK_STEP)
+    )
   }
 
   /**
@@ -536,16 +541,18 @@ export class ChunkedUploader {
    * 计算分块
    */
   private calculateParts(fileSize: number): ChunkUploadInfo[] {
-    // 计算分块大小，确保不超过最大分块数
-    let partSize = RECOMMENDED_PART_SIZE
-    const minPartSizeForMaxParts = Math.ceil(fileSize / MAX_PART_COUNT)
+    // 使用配置的分块步长
+    let partSize = this.chunkStep
+
+    // 确保不超过最大分块数
+    const minPartSizeForMaxParts = Math.ceil(fileSize / S3_MAX_PART_COUNT)
     if (minPartSizeForMaxParts > partSize) {
       partSize = minPartSizeForMaxParts
     }
 
-    // 确保不小于最小分块大小
-    if (partSize < MIN_PART_SIZE) {
-      partSize = MIN_PART_SIZE
+    // 确保不小于最小分块大小（S3 限制）
+    if (partSize < MIN_UPLOAD_CHUNK_STEP) {
+      partSize = MIN_UPLOAD_CHUNK_STEP
     }
 
     // 保存分块大小用于恢复

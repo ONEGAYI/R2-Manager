@@ -6,7 +6,12 @@
 
 import type { ChunkInfo, ChunkDownloadResult, ChunkedDownloaderState, ResumeDownloadOptions, PartialChunkState } from '@/types/chunk'
 import {
-  calculateChunks,
+  MIN_DOWNLOAD_CHUNK_STEP,
+  MAX_DOWNLOAD_CHUNK_STEP,
+  DEFAULT_DOWNLOAD_CHUNK_STEP,
+} from '@/types/chunk'
+import {
+  calculateChunksByStep,
   createRangeHeader,
   calculateTotalLoaded,
   getRecommendedConcurrency,
@@ -41,6 +46,8 @@ export interface ChunkedDownloaderOptions {
   fileName?: string
   /** 最大并发线程数 */
   maxConcurrency?: number
+  /** 分块步长（字节） */
+  chunkStep?: number
   /** 进度回调 */
   onProgress?: ProgressCallback
 }
@@ -57,6 +64,7 @@ export class ChunkedDownloader {
   private taskId: string
   private fileName: string
   private maxConcurrency: number
+  private chunkStep: number
   private onProgress?: ProgressCallback
 
   private chunks: ChunkInfo[] = []
@@ -83,6 +91,11 @@ export class ChunkedDownloader {
     this.taskId = options.taskId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
     this.fileName = options.fileName ?? options.key.split('/').pop() ?? 'download'
     this.maxConcurrency = options.maxConcurrency ?? 4
+    // Clamp 分块步长到有效范围
+    this.chunkStep = Math.max(
+      MIN_DOWNLOAD_CHUNK_STEP,
+      Math.min(MAX_DOWNLOAD_CHUNK_STEP, options.chunkStep ?? DEFAULT_DOWNLOAD_CHUNK_STEP)
+    )
     this.onProgress = options.onProgress
   }
 
@@ -103,8 +116,8 @@ export class ChunkedDownloader {
     this.partialData.clear()
     this.activeReaders.clear()
 
-    // 计算分块
-    this.chunks = calculateChunks(this.fileSize)
+    // 使用配置的步长计算分块
+    this.chunks = calculateChunksByStep(this.fileSize, this.chunkStep)
     const concurrency = getRecommendedConcurrency(this.chunks.length, this.maxConcurrency)
 
     // 确定需要下载的分块

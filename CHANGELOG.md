@@ -10,6 +10,11 @@ All notable changes to this project will be documented in this file.
   - 恢复时使用 Range 请求从断点继续（而非重新下载整个分块）
   - `partialData` Map 存储部分下载的数据，新数据追加到末尾
   - 动态 Range 请求：`bytes=断点位置-分块结束`
+- **分块步长配置** - 支持自定义上传/下载分块大小
+  - 设置对话框新增"分块设置"区域
+  - 上传分块大小：5-16 MB（S3 最小限制 5MB）
+  - 下载分块大小：4-32 MB
+  - 配置持久化到本地存储
 
 ### Improved
 - **状态持久化** - 暂停的下载任务自动保存到 store
@@ -35,6 +40,11 @@ All notable changes to this project will be documented in this file.
 - **数据追加**：部分数据存储在 `partialData`，新下载的数据追加到末尾
 - **缓存策略**：使用复合主键 `[taskId, chunkIndex]` 存储分块 Blob + loadedBytes 元数据
 - **新增类型**：`ChunkedDownloaderState`、`PausedDownloadState`、`ResumeDownloadOptions`、`CachedChunk`、`PartialChunkState`
+- **分块策略重构**：从基于文件大小阈值的分级制度改为固定步长机制
+  - 新增 `calculateChunksByStep()` 函数计算分块
+  - 新增常量：`DEFAULT_UPLOAD_CHUNK_STEP`、`DEFAULT_DOWNLOAD_CHUNK_STEP`、`MIN_UPLOAD_CHUNK_STEP`、`MAX_UPLOAD_CHUNK_STEP`、`MIN_DOWNLOAD_CHUNK_STEP`、`MAX_DOWNLOAD_CHUNK_STEP`、`S3_MAX_PART_COUNT`
+  - configStore 新增 `uploadChunkStep`、`downloadChunkStep` 状态和 `setChunkStepSettings()` 方法
+  - ChunkedUploader/ChunkedDownloader 构造函数新增 `chunkStep` 参数
 
 ---
 

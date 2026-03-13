@@ -54,6 +54,29 @@ export const DEFAULT_CHUNK_STRATEGIES: ChunkStrategy[] = [
   { threshold: Infinity, chunks: 8 },            // > 200MB
 ]
 
+// ==================== 分块步长常量 ====================
+
+/** 默认上传分块步长（8MB） */
+export const DEFAULT_UPLOAD_CHUNK_STEP = 8 * 1024 * 1024
+
+/** 默认下载分块步长（8MB） */
+export const DEFAULT_DOWNLOAD_CHUNK_STEP = 8 * 1024 * 1024
+
+/** 最小上传分块步长（5MB，S3 限制） */
+export const MIN_UPLOAD_CHUNK_STEP = 5 * 1024 * 1024
+
+/** 最大上传分块步长（16MB） */
+export const MAX_UPLOAD_CHUNK_STEP = 16 * 1024 * 1024
+
+/** 最小下载分块步长（4MB） */
+export const MIN_DOWNLOAD_CHUNK_STEP = 4 * 1024 * 1024
+
+/** 最大下载分块步长（32MB） */
+export const MAX_DOWNLOAD_CHUNK_STEP = 32 * 1024 * 1024
+
+/** S3 Multipart Upload 最大分块数 */
+export const S3_MAX_PART_COUNT = 10000
+
 /**
  * 分块下载任务状态
  */

@@ -2,11 +2,31 @@ import { create } from 'zustand'
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
 import type { AppConfig, R2Credentials, ConnectionStatus } from '@/types/config'
 import { createHybridStorage } from '@/lib/tauriStorage'
+import {
+  DEFAULT_UPLOAD_CHUNK_STEP,
+  DEFAULT_DOWNLOAD_CHUNK_STEP,
+} from '@/types/chunk'
+
+// 默认配置值（单一数据源，方便维护）
+export const DEFAULT_CONFIG = {
+  theme: 'system' as const,
+  viewMode: 'list' as const,
+  defaultBucket: undefined as string | undefined,
+  maxUploadThreads: 4,
+  maxDownloadThreads: 4,
+  uploadChunkStep: DEFAULT_UPLOAD_CHUNK_STEP,
+  downloadChunkStep: DEFAULT_DOWNLOAD_CHUNK_STEP,
+  defaultDownloadPath: '',
+}
 
 interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
   // 并发设置
   maxUploadThreads: number
   maxDownloadThreads: number
+
+  // 分块步长设置（字节）
+  uploadChunkStep: number
+  downloadChunkStep: number
 
   // 下载设置
   defaultDownloadPath: string
@@ -25,6 +45,10 @@ interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
   setDefaultBucket: (bucket?: string) => void
   setConcurrencySettings: (settings: { maxUploadThreads?: number; maxDownloadThreads?: number }) => void
   setDownloadPath: (path: string) => void
+  setChunkStepSettings: (settings: { uploadChunkStep?: number; downloadChunkStep?: number }) => void
+
+  // 重置默认值（保留凭证）
+  resetToDefaults: () => void
 }
 
 const emptyCredentials: R2Credentials = {
@@ -43,6 +67,8 @@ type PersistedConfigState = {
   defaultBucket: string | undefined
   maxUploadThreads: number
   maxDownloadThreads: number
+  uploadChunkStep: number
+  downloadChunkStep: number
   defaultDownloadPath: string
 }
 
@@ -51,15 +77,8 @@ export const useConfigStore = create<ConfigState>()(
     (set, get) => ({
       // 初始状态
       ...emptyCredentials,
-      theme: 'system',
-      viewMode: 'list',
-      defaultBucket: undefined,
+      ...DEFAULT_CONFIG,
       isConnected: false,
-      // 并发设置
-      maxUploadThreads: 4,
-      maxDownloadThreads: 4,
-      // 下载设置
-      defaultDownloadPath: '',
 
       // R2 凭证操作
       setCredentials: (creds) =>
@@ -92,6 +111,16 @@ export const useConfigStore = create<ConfigState>()(
       setDefaultBucket: (defaultBucket) => set({ defaultBucket }),
       setConcurrencySettings: (settings) => set((state) => ({ ...state, ...settings })),
       setDownloadPath: (defaultDownloadPath) => set({ defaultDownloadPath }),
+      setChunkStepSettings: (settings) => set((state) => ({ ...state, ...settings })),
+
+      // 重置默认值（保留凭证）
+      resetToDefaults: () =>
+        set((state) => ({
+          ...state,
+          // 保留凭证: accountId, accessKeyId, secretAccessKey
+          ...DEFAULT_CONFIG,
+          isConnected: false,
+        })),
     }),
     {
       name: 'r2-manager-config',
@@ -106,6 +135,8 @@ export const useConfigStore = create<ConfigState>()(
         defaultBucket: state.defaultBucket,
         maxUploadThreads: state.maxUploadThreads,
         maxDownloadThreads: state.maxDownloadThreads,
+        uploadChunkStep: state.uploadChunkStep,
+        downloadChunkStep: state.downloadChunkStep,
         defaultDownloadPath: state.defaultDownloadPath,
       }),
     }

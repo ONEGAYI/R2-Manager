@@ -5,7 +5,10 @@
  */
 
 import type { ChunkInfo, ChunkStrategy } from '@/types/chunk'
-import { DEFAULT_CHUNK_STRATEGIES } from '@/types/chunk'
+import {
+  DEFAULT_CHUNK_STRATEGIES,
+  S3_MAX_PART_COUNT,
+} from '@/types/chunk'
 
 /**
  * 根据文件大小计算分块信息
@@ -133,4 +136,55 @@ export function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k))
 
   return `${(bytes / Math.pow(k, i)).toFixed(2)} ${units[i]}`
+}
+
+/**
+ * 根据固定步长计算分块信息
+ *
+ * @param fileSize 文件大小（字节）
+ * @param stepSize 分块步长（字节）
+ * @param maxPartCount 最大分块数（默认 S3 限制 10000）
+ * @returns 分块信息数组
+ */
+export function calculateChunksByStep(
+  fileSize: number,
+  stepSize: number,
+  maxPartCount: number = S3_MAX_PART_COUNT
+): ChunkInfo[] {
+  // 计算初始分块数
+  let chunkCount = Math.ceil(fileSize / stepSize)
+
+  // 如果分块数超过最大限制，自动增大步长
+  if (chunkCount > maxPartCount) {
+    stepSize = Math.ceil(fileSize / maxPartCount)
+    chunkCount = maxPartCount
+  }
+
+  // 不分块时返回单个分块
+  if (chunkCount <= 1) {
+    return [{
+      index: 0,
+      start: 0,
+      end: fileSize - 1,
+      loadedBytes: 0,
+      completed: false,
+    }]
+  }
+
+  const chunks: ChunkInfo[] = []
+
+  for (let i = 0; i < chunkCount; i++) {
+    const start = i * stepSize
+    const end = Math.min(start + stepSize - 1, fileSize - 1)
+
+    chunks.push({
+      index: i,
+      start,
+      end,
+      loadedBytes: 0,
+      completed: false,
+    })
+  }
+
+  return chunks
 }
