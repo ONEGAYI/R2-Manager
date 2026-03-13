@@ -1011,58 +1011,61 @@ function App() {
               onBatchDownload={handleBatchDownload}
             />
 
-            <AnimatePresence mode="wait">
-              {isLoading || deleting ? (
-                <Loading key="loading" />
-              ) : !selectedBucket ? (
-                <Empty
-                  key="empty-bucket"
-                  message="请选择一个存储桶"
-                  description="从左侧列表选择或创建新的存储桶"
-                />
-              ) : objects.length === 0 && prefixes.length === 0 ? (
-                <Empty
-                  key="empty-files"
-                  message="存储桶为空"
-                  description="上传文件开始使用"
-                />
-              ) : viewMode === 'grid' ? (
-                <motion.div
-                  key="grid"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                >
-                  <FileGrid
-                    objects={objects}
-                    prefixes={prefixes}
-                    selectedKeys={selectedKeys}
-                    onSelect={selectKey}
-                    onOpenFolder={handleOpenFolder}
-                    onOpenFile={handleOpenFile}
+            {/* 文件列表区域 - 可滚动容器 */}
+            <div className="flex-1 overflow-auto">
+              <AnimatePresence mode="wait">
+                {isLoading || deleting ? (
+                  <Loading key="loading" />
+                ) : !selectedBucket ? (
+                  <Empty
+                    key="empty-bucket"
+                    message="请选择一个存储桶"
+                    description="从左侧列表选择或创建新的存储桶"
                   />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="list"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                >
-                  <FileList
-                    objects={objects}
-                    prefixes={prefixes}
-                    selectedKeys={selectedKeys}
-                    onSelect={selectKey}
-                    onSelectAll={handleSelectAll}
-                    onOpenFolder={handleOpenFolder}
-                    onOpenFile={handleOpenFile}
-                    onDelete={handleDelete}
-                    onDownload={handleDownload}
+                ) : objects.length === 0 && prefixes.length === 0 ? (
+                  <Empty
+                    key="empty-files"
+                    message="存储桶为空"
+                    description="上传文件开始使用"
                   />
-                </motion.div>
-              )}
-            </AnimatePresence>
+                ) : viewMode === 'grid' ? (
+                  <motion.div
+                    key="grid"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <FileGrid
+                      objects={objects}
+                      prefixes={prefixes}
+                      selectedKeys={selectedKeys}
+                      onSelect={selectKey}
+                      onOpenFolder={handleOpenFolder}
+                      onOpenFile={handleOpenFile}
+                    />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="list"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                  >
+                    <FileList
+                      objects={objects}
+                      prefixes={prefixes}
+                      selectedKeys={selectedKeys}
+                      onSelect={selectKey}
+                      onSelectAll={handleSelectAll}
+                      onOpenFolder={handleOpenFolder}
+                      onOpenFile={handleOpenFile}
+                      onDelete={handleDelete}
+                      onDownload={handleDownload}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </>
         )}
 

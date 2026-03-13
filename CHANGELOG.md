@@ -14,10 +14,20 @@ All notable changes to this project will be documented in this file.
   - 支持文件夹图标：node_modules、src、dist、components、assets 等
   - 深色主题适配
 
+### Fixed
+- **滚动条缺失问题** - 修复多处区域没有滚动条导致内容无法访问的问题
+  - 文件列表区域：添加 `flex-1 overflow-auto` 容器，超出显示范围的文件可滚动查看
+  - 文件列表表头冻结：使用 `sticky top-0 z-10` 实现表头固定，滚动时名称/大小/时间表头保持可见
+  - 侧边栏存储桶列表：添加 `flex-1 overflow-y-auto`，存储桶过多时可滚动
+  - 侧边栏底部固定：传输按钮、主题切换器、设置按钮使用 `shrink-0` 固定在底部，不会被增多的存储桶挤出
+
 ### Technical
 - 使用 `vite-plugin-svgr` 将 SVG 转换为 React 组件
 - 使用 `import.meta.glob` 预加载所有图标（eager 模式）
 - FileGrid.tsx 和 FileList.tsx 改用 FileIcon 组件
+- `App.tsx` 文件列表区域添加滚动容器
+- `FileList.tsx` 移除内部滚动容器，表头使用 sticky 定位
+- `Sidebar.tsx` 重构布局：Logo/标题固定 + 列表可滚动 + 底部固定
 
 ---
 

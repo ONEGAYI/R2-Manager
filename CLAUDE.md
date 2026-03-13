@@ -186,9 +186,6 @@ cloudflare-r2-manager/
 - [x] 拖拽上传
 - [ ] 性能优化
 - [x] **文件图标自动识别** - 根据文件后缀名显示 vscode-icons 图标
-  - 支持 58 种文件类型图标（代码、样式、配置、图片、视频、音频、文档、压缩包等）
-  - 支持 32 种文件夹图标（node_modules、src、dist、components 等）
-  - 支持特殊文件识别（package.json、Dockerfile、README.md、LICENSE 等）
 
 ### Phase 4: 高级功能
 - [x] Tauri v2 桌面端打包（Windows MSI/NSIS）

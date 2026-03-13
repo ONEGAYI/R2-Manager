@@ -41,9 +41,8 @@ export function FileList({
   const isIndeterminate = selectedCount > 0 && selectedCount < totalCount
 
   return (
-    <div className="flex-1 overflow-auto">
-      <table className="w-full">
-        <thead className="sticky top-0 bg-background border-b">
+    <table className="w-full">
+      <thead className="sticky top-0 bg-background border-b z-10">
           <tr className="text-left text-sm text-muted-foreground">
             <th className="w-10 p-3">
               <input
@@ -184,6 +183,5 @@ export function FileList({
           })}
         </tbody>
       </table>
-    </div>
   )
 }
