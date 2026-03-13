@@ -108,7 +108,7 @@ fn main() {
 
                 let shell = app_handle.shell();
 
-                match shell.sidecar("server") {
+                match shell.sidecar("r2-proxy-server") {
                     Ok(sidecar_cmd) => {
                         log("[Sidecar] Command created successfully");
 

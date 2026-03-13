@@ -10,6 +10,14 @@ All notable changes to this project will be documented in this file.
   - 窗口关闭时显式调用 `kill()` 终止后端进程
   - 通过 `Arc<Mutex<Option<CommandChild>>>` 实现跨线程安全的进程句柄共享
 
+### Changed
+- **Sidecar 进程名统一** - 增强辨识度，与浏览器端后端服务名称一致
+  - `main.rs`: `sidecar("server")` → `sidecar("r2-proxy-server")`
+  - 删除旧的 `server-x86_64-pc-windows-msvc.exe` 文件
+- **NSIS 安装脚本增强** - 兼容新旧进程名，确保升级时正确终止进程
+  - 安装时杀掉所有可能的 sidecar 进程名（含架构后缀版本）
+  - 卸载时同样支持多种进程名
+
 ### Technical
 - 修复 Rust 编译错误：`kill(self)` 需要 ownership，使用 `take()` 取出而非引用
 - 修复闭包 move 问题：在 `setup` 前克隆 `server_child_for_close` 给 `on_window_event` 使用

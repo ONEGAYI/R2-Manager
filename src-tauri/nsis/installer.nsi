@@ -11,13 +11,23 @@
     Sleep 500  ; 等待进程完全退出
   ${EndIf}
 
-  ; 关闭新版 sidecar 进程
+  ; 关闭新版 sidecar 进程（打包后名称）
   nsExec::ExecToStack `taskkill /F /IM "r2-proxy-server.exe" /T`
+  Pop $0
+  Pop $1
+
+  ; 关闭新版 sidecar 进程（带架构后缀，开发/旧版安装包）
+  nsExec::ExecToStack `taskkill /F /IM "r2-proxy-server-x86_64-pc-windows-msvc.exe" /T`
   Pop $0
   Pop $1
 
   ; 关闭旧版 sidecar 进程（兼容升级）
   nsExec::ExecToStack `taskkill /F /IM "server.exe" /T`
+  Pop $0
+  Pop $1
+
+  ; 关闭旧版 sidecar 进程（带架构后缀）
+  nsExec::ExecToStack `taskkill /F /IM "server-x86_64-pc-windows-msvc.exe" /T`
   Pop $0
   Pop $1
 
@@ -30,7 +40,20 @@
   Pop $0
   Pop $1
 
+  ; 关闭 sidecar 进程（多种可能的名称）
   nsExec::ExecToStack `taskkill /F /IM "r2-proxy-server.exe" /T`
+  Pop $0
+  Pop $1
+
+  nsExec::ExecToStack `taskkill /F /IM "r2-proxy-server-x86_64-pc-windows-msvc.exe" /T`
+  Pop $0
+  Pop $1
+
+  nsExec::ExecToStack `taskkill /F /IM "server.exe" /T`
+  Pop $0
+  Pop $1
+
+  nsExec::ExecToStack `taskkill /F /IM "server-x86_64-pc-windows-msvc.exe" /T`
   Pop $0
   Pop $1
 
