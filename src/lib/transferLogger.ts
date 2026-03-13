@@ -157,6 +157,20 @@ export const transferLogger = {
   },
 
   /**
+   * 下载暂停
+   */
+  downloadPaused(key: string): void {
+    log('info', 'Download paused', { key })
+  },
+
+  /**
+   * 下载恢复
+   */
+  downloadResuming(key: string): void {
+    log('info', 'Download resuming', { key })
+  },
+
+  /**
    * 使用分块下载模式
    */
   usingChunkedMode(fileSize: number, chunkCount: number, concurrency: number): void {

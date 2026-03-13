@@ -1,13 +1,75 @@
 # 多线程分块传输技术方案
 
 > 调研日期：2026-03-11
-> 最后更新：2026-03-12
-> 状态：Phase 1 下载/上传 + Phase 2 暂停/恢复 均已完成
+> 最后更新：2026-03-13
+> 状态：Phase 1 下载/上传 + Phase 2 暂停/恢复 + Phase 3 断点续传 均已完成
 > 目标：实现断点续传 + 多线程分块下载 + 多线程分块上传
 
 ---
 
 ## 性能优化记录
+
+### 2026-03-13 下载断点续传（真正的断点续传）
+
+**功能**：下载暂停后恢复时，从断点位置继续下载（而非重新下载整个分块）
+
+**问题背景**：
+- 之前的实现：暂停后恢复会重新下载整个分块
+- 例如：18MB 分块下载了 917KB 后暂停 → 恢复时重新下载 18MB（浪费 917KB）
+
+**实现方案**：
+1. **部分数据保存**：
+   - `partialData: Map<number, Uint8Array>` 存储部分下载的分块数据
+   - 暂停时保存部分数据到 IndexedDB（包含 `loadedBytes` 元数据）
+2. **动态 Range 请求**：
+   - 恢复时计算 `resumeOffset = chunk.start + loadedBytes`
+   - 使用 `Range: bytes=resumeOffset-chunk.end` 请求剩余数据
+3. **数据追加**：
+   - 创建完整大小的 `Uint8Array`
+   - 复制已有部分数据到开头
+   - 新下载的数据追加到末尾
+   - 完成后合并为一个完整分块
+
+**数据流示意**：
+```
+首次下载分块 0（18MB）：
+┌─────────────────────────────────────────┐
+│ 下载 0-917KB → 暂停                      │
+│ partialData[0] = [0-917KB 数据]          │
+│ 缓存: { index: 0, loadedBytes: 917KB }   │
+└─────────────────────────────────────────┘
+
+恢复下载：
+┌─────────────────────────────────────────┐
+│ 1. 从缓存加载 partialData[0]             │
+│ 2. 计算断点: resumeOffset = 917KB        │
+│ 3. Range 请求: bytes=917KB-18MB         │
+│ 4. 新数据追加到 partialData[0] 末尾      │
+│ 5. 完成后合并为一个完整分块              │
+└─────────────────────────────────────────┘
+```
+
+**新增类型定义**：
+- `PartialChunkState` - 部分下载的分块状态（index、loadedBytes）
+- `CachedChunk.loadedBytes` - 缓存分块的已下载字节数
+
+**关键代码**：
+```typescript
+// 下载时追加数据
+const finalData = new Uint8Array(expectedSize)
+if (existingPartial) {
+  finalData.set(existingPartial, 0)  // 复制已有数据
+}
+finalData.set(value, loadedBytes)    // 追加新数据
+
+// 暂停时保存部分数据
+this.partialData.set(chunk.index, finalData.slice(0, loadedBytes))
+await downloadCacheManager.saveChunk(taskId, index, blob, loadedBytes)
+
+// 恢复时动态计算 Range
+const resumeOffset = chunk.start + loadedBytes
+const rangeHeader = createRangeHeader(resumeOffset, chunk.end)
+```
 
 ### 2026-03-12 上传暂停/恢复功能
 

@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.4] - 2026-03-13
+
+### Added
+- **下载断点续传** - 真正的断点续传，从暂停位置继续下载
+  - 暂停时保存部分下载的分块数据到 IndexedDB
+  - 恢复时使用 Range 请求从断点继续（而非重新下载整个分块）
+  - `partialData` Map 存储部分下载的数据，新数据追加到末尾
+  - 动态 Range 请求：`bytes=断点位置-分块结束`
+
+### Improved
+- **状态持久化** - 暂停的下载任务自动保存到 store
+  - `pausedDownloads` 数组存储暂停状态（taskId、completedChunks、partialChunks、loadedBytes 等）
+  - 应用重启后可恢复暂停的下载任务
+- **缓存管理**
+  - 已下载分块保存到 IndexedDB（跨会话持久化）
+  - 部分下载的分块也保存（包含 loadedBytes 元数据）
+  - 下载完成/取消时自动清理对应缓存
+  - 启动时清理超过 7 天的僵尸缓存
+- **UI 增强**
+  - 下载任务支持暂停/恢复按钮
+  - `TransferPage` 统一处理上传/下载的暂停/恢复回调
+
+### Fixed
+- **竞态条件修复** - 修复暂停时 `reader.cancel()` 不抛异常导致部分数据被错误保存的问题
+  - 添加数据完整性验证：检查下载大小是否与预期一致
+  - 暂停时正确处理部分数据（追加保存而非丢弃）
+
+### Technical
+- **暂停机制**：通过 `activeReaders` Map 追踪活跃流读取器，暂停时全部取消
+- **恢复机制**：从 IndexedDB 加载已完成分块 + 部分分块，从断点继续下载
+- **数据追加**：部分数据存储在 `partialData`，新下载的数据追加到末尾
+- **缓存策略**：使用复合主键 `[taskId, chunkIndex]` 存储分块 Blob + loadedBytes 元数据
+- **新增类型**：`ChunkedDownloaderState`、`PausedDownloadState`、`ResumeDownloadOptions`、`CachedChunk`、`PartialChunkState`
+
+---
+
 ## [0.9.3] - 2026-03-13
 
 ### Fixed

@@ -169,3 +169,81 @@ export interface PausedUploadState {
   /** 创建时间 */
   createdAt: number
 }
+
+// ==================== 下载暂停/恢复相关类型 ====================
+
+/**
+ * 部分下载的分块状态
+ */
+export interface PartialChunkState {
+  /** 分块索引 */
+  index: number
+  /** 已下载字节数 */
+  loadedBytes: number
+}
+
+/**
+ * ChunkedDownloader 内部状态（用于持久化）
+ */
+export interface ChunkedDownloaderState {
+  /** 任务标识 */
+  taskId: string
+  /** 存储桶名称 */
+  bucketName: string
+  /** 文件键名 */
+  key: string
+  /** 文件名（用于显示） */
+  fileName: string
+  /** 文件大小 */
+  fileSize: number
+  /** 总分块数 */
+  totalChunks: number
+  /** 已完成分块索引列表 */
+  completedChunks: number[]
+  /** 部分下载的分块状态（用于断点续传） */
+  partialChunks: PartialChunkState[]
+  /** 已下载字节数 */
+  loadedBytes: number
+  /** 暂停时间戳 */
+  pausedAt: number
+}
+
+/**
+ * 暂停的下载任务状态（用于持久化到 store）
+ */
+export interface PausedDownloadState {
+  /** 任务 ID */
+  taskId: string
+  /** ChunkedDownloader 状态 */
+  downloaderState: ChunkedDownloaderState
+  /** 创建时间 */
+  createdAt: number
+}
+
+/**
+ * 恢复下载选项
+ */
+export interface ResumeDownloadOptions {
+  /** 已完成的分块索引列表 */
+  completedChunks: number[]
+  /** 部分下载的分块状态 */
+  partialChunks: PartialChunkState[]
+  /** 已下载字节数 */
+  loadedBytes: number
+}
+
+/**
+ * 缓存的分块数据
+ */
+export interface CachedChunk {
+  /** 任务 ID */
+  taskId: string
+  /** 分块索引 */
+  chunkIndex: number
+  /** 分块数据 */
+  blob: Blob
+  /** 已下载字节数（用于断点续传，可能小于完整分块大小） */
+  loadedBytes: number
+  /** 保存时间 */
+  savedAt: number
+}

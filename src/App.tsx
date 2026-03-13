@@ -22,9 +22,10 @@ import { fileService } from '@/services/fileService'
 import { initLogger } from '@/lib/logger'
 import { ChunkedDownloader, shouldUseChunkedDownload } from '@/services/chunkedDownload'
 import { ChunkedUploader, shouldUseChunkedUpload, type ResumeOptions } from '@/services/chunkedUpload'
-import type { ChunkedUploaderState } from '@/types/chunk'
+import type { ChunkedUploaderState, ChunkedDownloaderState, ResumeDownloadOptions } from '@/types/chunk'
 import { transferLogger } from '@/lib/transferLogger'
 import { registerAbortFn, unregisterAbortFn } from '@/lib/abortRegistry'
+import { downloadCacheManager } from '@/lib/downloadCacheManager'
 import type { UploadFile } from '@/types/file'
 import '@/styles/globals.css'
 
@@ -75,6 +76,13 @@ function App() {
   file: File | null
   }>>(new Map())
 
+  // 下载控制器映射（用于暂停/恢复）
+  const downloadControllers = useRef<Map<string, {
+    downloader: ChunkedDownloader
+    pause: () => Promise<ChunkedDownloaderState>
+    abort: () => void
+  }>>(new Map())
+
   const { buckets, selectedBucket, isLoading, selectBucket, refreshBuckets } =
     useBuckets()
   const { viewMode } = useConfig()
@@ -111,6 +119,9 @@ function App() {
     savePausedUpload,
     removePausedUpload,
     getPausedUpload,
+    savePausedDownload,
+    removePausedDownload,
+    getPausedDownload,
   } = useTransferStore()
 
   // 检查是否有有效凭证
@@ -122,6 +133,9 @@ function App() {
   // 初始化日志系统（仅 Tauri 环境）
   useEffect(() => {
     initLogger()
+
+    // 清理过期的下载缓存（超过 7 天的僵尸缓存）
+    downloadCacheManager.cleanExpiredCache().catch(console.error)
   }, [])
 
   // 初始化 API 客户端
@@ -296,6 +310,8 @@ function App() {
               bucketName: selectedBucket,
               key,
               fileSize,
+              taskId,
+              fileName,
               maxConcurrency: maxDownloadThreads,
               onProgress: (loaded, total, speed) => {
                 const progress = total > 0 ? Math.round((loaded / total) * 100) : 0
@@ -303,12 +319,26 @@ function App() {
               },
             })
 
+            // 注册下载控制器（用于暂停/恢复）
+            downloadControllers.current.set(taskId, {
+              downloader,
+              pause: () => downloader.pause(),
+              abort: () => downloader.abort(),
+            })
+
             // 注册取消函数
             registerAbortFn(taskId, () => downloader.abort())
 
             blob = await downloader.start()
 
-            // 下载完成，注销 abort 函数
+            // 检查是否被暂停
+            if (downloader.isPaused()) {
+              // 暂停状态已由 handlePauseDownload 处理
+              return
+            }
+
+            // 下载完成，清理控制器和 abort 函数
+            downloadControllers.current.delete(taskId)
             unregisterAbortFn(taskId)
           } else {
             // 使用单线程下载（小文件）
@@ -349,9 +379,20 @@ function App() {
         } catch (error) {
           console.error('Download failed:', error)
           const errorMsg = error instanceof Error ? error.message : String(error)
+
+          // 检查是否是暂停导致的错误（不是真正的失败）
+          if (errorMsg === 'Download paused') {
+            // 暂停是正常操作，不需要当作失败处理
+            // 暂停状态已由 handlePauseDownload 处理
+            console.log('[Download] Download paused by user:', taskId)
+            return
+          }
+
           transferLogger.taskFailed(taskId, errorMsg)
           updateTask(taskId, { status: 'error', error: errorMsg })
 
+          // 清理控制器
+          downloadControllers.current.delete(taskId)
           // 注销 abort 函数
           unregisterAbortFn(taskId)
 
@@ -752,6 +793,137 @@ function App() {
     }
   }, [getTaskById, getPausedUpload, resumeTask, updateTask, removePausedUpload, moveToHistory, refreshFiles, maxUploadThreads])
 
+  // 处理暂停下载
+  const handlePauseDownload = useCallback(async (taskId: string) => {
+    const controller = downloadControllers.current.get(taskId)
+    if (!controller) {
+      console.warn('No download controller found for task:', taskId)
+      return
+    }
+
+    console.log('[PauseDownload] Starting pause for task:', taskId)
+
+    try {
+      // 调用 downloader.pause() 获取状态
+      const state = await controller.downloader.pause()
+      console.log('[PauseDownload] pause() returned, isPaused:', controller.downloader.isPaused())
+
+      // 保存暂停状态到 store
+      savePausedDownload({
+        taskId,
+        downloaderState: state,
+        createdAt: Date.now(),
+      })
+
+      // 更新任务状态
+      pauseTask(taskId)
+
+      console.log('[PauseDownload] Download paused successfully:', taskId)
+    } catch (error) {
+      console.error('Pause download failed:', error)
+    }
+  }, [pauseTask, savePausedDownload])
+
+  // 处理恢复下载
+  const handleResumeDownload = useCallback(async (taskId: string) => {
+    const task = getTaskById(taskId)
+    if (!task) {
+      console.warn('Task not found:', taskId)
+      return
+    }
+
+    // 从 store 获取暂停状态
+    const pausedState = getPausedDownload(taskId)
+    if (!pausedState) {
+      console.warn('No paused state found for task:', taskId)
+      return
+    }
+
+    // 更新任务状态为运行中
+    resumeTask(taskId)
+    updateTask(taskId, { status: 'running' })
+
+    try {
+      // 创建新的 downloader 恢复下载
+      const downloader = new ChunkedDownloader({
+        bucketName: pausedState.downloaderState.bucketName,
+        key: pausedState.downloaderState.key,
+        fileSize: pausedState.downloaderState.fileSize,
+        taskId: pausedState.downloaderState.taskId,
+        fileName: pausedState.downloaderState.fileName,
+        maxConcurrency: maxDownloadThreads,
+        onProgress: (loaded, total, speed) => {
+          const progress = Math.round((loaded / total) * 100)
+          updateTask(taskId, { progress, loadedBytes: loaded, speed })
+        },
+      })
+
+      // 注册控制器
+      downloadControllers.current.set(taskId, {
+        downloader,
+        pause: () => downloader.pause(),
+        abort: () => downloader.abort(),
+      })
+
+      // 注册取消函数
+      registerAbortFn(taskId, () => downloader.abort())
+
+      // 准备恢复选项
+      const resumeOptions: ResumeDownloadOptions = {
+        completedChunks: pausedState.downloaderState.completedChunks,
+        partialChunks: pausedState.downloaderState.partialChunks ?? [],
+        loadedBytes: pausedState.downloaderState.loadedBytes,
+      }
+
+      // 开始恢复下载
+      console.log('[ResumeDownload] Starting download for task:', taskId)
+      const blob = await downloader.start(resumeOptions)
+      console.log('[ResumeDownload] Download start() returned, isPaused:', downloader.isPaused(), 'isAborted:', downloader.isAborted())
+
+      // 检查是否被暂停
+      if (downloader.isPaused()) {
+        console.log('[ResumeDownload] Download paused again, returning:', taskId)
+        return
+      }
+
+      // 下载完成，创建下载链接
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = pausedState.downloaderState.fileName
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
+
+      // 下载完成，清理
+      unregisterAbortFn(taskId)
+      downloadControllers.current.delete(taskId)
+      removePausedDownload(taskId)
+
+      // 移动到历史记录
+      const completedTask = getTaskById(taskId)
+      if (completedTask) {
+        moveToHistory(completedTask, 'completed')
+      }
+
+      console.log('Download resumed and completed:', taskId)
+    } catch (error) {
+      console.error('Resume download failed:', error)
+      const errorMsg = error instanceof Error ? error.message : String(error)
+
+      // 检查是否是暂停导致的错误
+      if (errorMsg === 'Download paused') {
+        console.log('[ResumeDownload] Download paused by user:', taskId)
+        return
+      }
+
+      transferLogger.taskFailed(taskId, errorMsg)
+      updateTask(taskId, { status: 'error', error: errorMsg })
+      unregisterAbortFn(taskId)
+    }
+  }, [getTaskById, getPausedDownload, resumeTask, updateTask, removePausedDownload, moveToHistory, maxDownloadThreads])
+
   // 移除上传项
   const handleUploadRemove = useCallback((id: string) => {
     setUploads((prev) => prev.filter((u) => u.id !== id))
@@ -799,6 +971,8 @@ function App() {
           <TransferPage
             onPauseUpload={handlePauseUpload}
             onResumeUpload={handleResumeUpload}
+            onPauseDownload={handlePauseDownload}
+            onResumeDownload={handleResumeDownload}
           />
         ) : (
           <>

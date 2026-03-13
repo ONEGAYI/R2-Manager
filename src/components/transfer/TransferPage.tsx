@@ -10,9 +10,11 @@ import type { TransferTab, TransferDirection } from '@/types/transfer'
 interface TransferPageProps {
   onPauseUpload?: (taskId: string) => void
   onResumeUpload?: (taskId: string) => void
+  onPauseDownload?: (taskId: string) => void
+  onResumeDownload?: (taskId: string) => void
 }
 
-export function TransferPage({ onPauseUpload, onResumeUpload }: TransferPageProps) {
+export function TransferPage({ onPauseUpload, onResumeUpload, onPauseDownload, onResumeDownload }: TransferPageProps) {
   const [activeTab, setActiveTab] = useState<TransferTab>('uploading')
 
   const {
@@ -68,6 +70,29 @@ export function TransferPage({ onPauseUpload, onResumeUpload }: TransferPageProp
   const content = getCurrentContent()
   const isHistoryTab = activeTab === 'uploadCompleted' || activeTab === 'downloadCompleted'
 
+  // 根据任务方向调用相应的暂停/恢复回调
+  const handlePause = (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId)
+    if (!task) return
+
+    if (task.direction === 'upload') {
+      onPauseUpload?.(taskId)
+    } else {
+      onPauseDownload?.(taskId)
+    }
+  }
+
+  const handleResume = (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId)
+    if (!task) return
+
+    if (task.direction === 'upload') {
+      onResumeUpload?.(taskId)
+    } else {
+      onResumeDownload?.(taskId)
+    }
+  }
+
   return (
     <div className="h-full flex flex-col p-6">
       {/* 页面标题 */}
@@ -111,8 +136,8 @@ export function TransferPage({ onPauseUpload, onResumeUpload }: TransferPageProp
           <TaskList
             tasks={(content as { tasks: typeof tasks }).tasks}
             onCancel={cancelTask}
-            onPause={onPauseUpload}
-            onResume={onResumeUpload}
+            onPause={handlePause}
+            onResume={handleResume}
             emptyMessage={(content as { emptyMessage: string }).emptyMessage}
           />
         )}

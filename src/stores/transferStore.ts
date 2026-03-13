@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
 import type { TransferTask, TransferHistory, TransferDirection } from '@/types/transfer'
-import type { PausedUploadState } from '@/types/chunk'
+import type { PausedUploadState, PausedDownloadState } from '@/types/chunk'
 import { createHybridStorage } from '@/lib/tauriStorage'
 import { abortTask, unregisterAbortFn } from '@/lib/abortRegistry'
 
@@ -15,6 +15,9 @@ interface TransferState {
   // 暂停的上传任务（持久化）
   pausedUploads: PausedUploadState[]
 
+  // 暂停的下载任务（持久化）
+  pausedDownloads: PausedDownloadState[]
+
   // 任务操作
   addTask: (task: Omit<TransferTask, 'id' | 'startTime' | 'loadedBytes' | 'speed' | 'status' | 'progress'>) => string
   updateTask: (id: string, updates: Partial<TransferTask>) => void
@@ -23,12 +26,17 @@ interface TransferState {
   removeTaskAndHistory: (id: string) => void
   getTaskById: (id: string) => TransferTask | undefined
 
-  // 暂停/恢复操作
+  // 暂停/恢复操作（上传）
   pauseTask: (id: string) => void
   resumeTask: (id: string) => void
   savePausedUpload: (state: PausedUploadState) => void
   removePausedUpload: (taskId: string) => void
   getPausedUpload: (taskId: string) => PausedUploadState | undefined
+
+  // 暂停/恢复操作（下载）
+  savePausedDownload: (state: PausedDownloadState) => void
+  removePausedDownload: (taskId: string) => void
+  getPausedDownload: (taskId: string) => PausedDownloadState | undefined
 
   // 历史操作
   moveToHistory: (task: TransferTask, status: 'completed' | 'error', error?: string, localPath?: string) => void
@@ -53,6 +61,7 @@ const MAX_HISTORY = 100
 type PersistedTransferState = {
   history: TransferHistory[]
   pausedUploads: PausedUploadState[]
+  pausedDownloads: PausedDownloadState[]
 }
 
 export const useTransferStore = create<TransferState>()(
@@ -61,6 +70,7 @@ export const useTransferStore = create<TransferState>()(
       tasks: [],
       history: [],
       pausedUploads: [],
+      pausedDownloads: [],
 
       // 添加新任务
       addTask: (taskData) => {
@@ -164,6 +174,36 @@ export const useTransferStore = create<TransferState>()(
         return get().pausedUploads.find((p) => p.taskId === taskId)
       },
 
+      // 保存暂停的下载状态
+      savePausedDownload: (pausedState: PausedDownloadState) => {
+        set((state) => {
+          // 检查是否已存在，如果存在则更新
+          const existingIndex = state.pausedDownloads.findIndex(
+            (p) => p.taskId === pausedState.taskId
+          )
+          const newPausedDownloads =
+            existingIndex >= 0
+              ? state.pausedDownloads.map((p, i) =>
+                  i === existingIndex ? pausedState : p
+                )
+              : [...state.pausedDownloads, pausedState]
+
+          return { pausedDownloads: newPausedDownloads }
+        })
+      },
+
+      // 移除暂停的下载状态
+      removePausedDownload: (taskId: string) => {
+        set((state) => ({
+          pausedDownloads: state.pausedDownloads.filter((p) => p.taskId !== taskId),
+        }))
+      },
+
+      // 获取暂停的下载状态
+      getPausedDownload: (taskId: string) => {
+        return get().pausedDownloads.find((p) => p.taskId === taskId)
+      },
+
       // 将任务移至历史记录
       moveToHistory: (task, status, error, localPath) => {
         const historyItem: TransferHistory = {
@@ -184,8 +224,13 @@ export const useTransferStore = create<TransferState>()(
           // 移除任务
           const newTasks = state.tasks.filter((t) => t.id !== task.id)
 
-          // 移除暂停状态（如果存在）
+          // 移除暂停的上传状态（如果存在）
           const newPausedUploads = state.pausedUploads.filter(
+            (p) => p.taskId !== task.id
+          )
+
+          // 移除暂停的下载状态（如果存在）
+          const newPausedDownloads = state.pausedDownloads.filter(
             (p) => p.taskId !== task.id
           )
 
@@ -199,6 +244,7 @@ export const useTransferStore = create<TransferState>()(
             tasks: newTasks,
             history: newHistory,
             pausedUploads: newPausedUploads,
+            pausedDownloads: newPausedDownloads,
           }
         })
       },
@@ -259,10 +305,11 @@ export const useTransferStore = create<TransferState>()(
     {
       name: 'r2-manager-transfer',
       storage: createJSONStorage(() => createHybridStorage() as StateStorage),
-      // 持久化历史记录和暂停的上传状态
+      // 持久化历史记录和暂停的上传/下载状态
       partialize: (state): PersistedTransferState => ({
         history: state.history,
         pausedUploads: state.pausedUploads,
+        pausedDownloads: state.pausedDownloads,
       }),
     }
   )
