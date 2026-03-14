@@ -14,8 +14,15 @@ All notable changes to this project will be documented in this file.
   - `src/lib/transferLogger.ts` - 新增重试日志方法（retryScheduled、retrySucceeded、retryFailed）
   - `src/stores/configStore.ts` - 新增重试配置（retryMaxAttempts、retryBaseDelay、retryMaxDelay）
   - `src/components/config/SettingsDialog.tsx` - 设置对话框新增重试配置 UI
+- **Tabs 组件** - shadcn/ui 标签页组件
+  - `src/components/ui/tabs.tsx` - 基于 @radix-ui/react-tabs 封装
 
 ### Improved
+- **设置对话框 UI 优化** - 改善用户体验和视觉稳定性
+  - 固定对话框高度（70vh），避免切换标签时高度跳动
+  - 固定 Header 和主导航栏，内容区域独立滚动
+  - "传输"标签新增二级导航：并发设置、分块设置、下载路径、错误重试
+  - 每个二级标签独立滚动，保存按钮固定在底部
 - **ChunkedUploader** - 上传分块失败时自动重试
   - `uploadPart()` 拆分为 `uploadPart()` + `uploadPartOnce()`
   - 支持暂停/取消时中断重试等待
