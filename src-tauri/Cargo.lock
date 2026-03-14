@@ -461,7 +461,7 @@ dependencies = [
 
 [[package]]
 name = "cloudflare-r2-manager"
-version = "0.9.11"
+version = "0.9.12"
 dependencies = [
  "chrono",
  "log",

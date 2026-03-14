@@ -58,6 +58,7 @@ export function SettingsDialog({
     secretAccessKey,
     maxUploadThreads,
     maxDownloadThreads,
+    maxBatchOperationThreads,
     uploadChunkStep,
     downloadChunkStep,
     defaultDownloadPath,
@@ -68,6 +69,7 @@ export function SettingsDialog({
     clearCredentials,
     setConnected,
     setConcurrencySettings,
+    setBatchOperationThreads,
     setDownloadPath,
     setChunkStepSettings,
     setRetrySettings,
@@ -84,6 +86,7 @@ export function SettingsDialog({
   const [concurrencyData, setConcurrencyData] = useState({
     maxUploadThreads,
     maxDownloadThreads,
+    maxBatchOperationThreads,
     uploadChunkStepMB: uploadChunkStep / (1024 * 1024),
     downloadChunkStepMB: downloadChunkStep / (1024 * 1024),
     defaultDownloadPath,
@@ -97,6 +100,7 @@ export function SettingsDialog({
     setConcurrencyData({
       maxUploadThreads,
       maxDownloadThreads,
+      maxBatchOperationThreads,
       uploadChunkStepMB: uploadChunkStep / (1024 * 1024),
       downloadChunkStepMB: downloadChunkStep / (1024 * 1024),
       defaultDownloadPath,
@@ -104,7 +108,7 @@ export function SettingsDialog({
       retryBaseDelaySec: retryBaseDelay / 1000,
       retryMaxDelaySec: retryMaxDelay / 1000,
     })
-  }, [maxUploadThreads, maxDownloadThreads, uploadChunkStep, downloadChunkStep, defaultDownloadPath, retryMaxAttempts, retryBaseDelay, retryMaxDelay])
+  }, [maxUploadThreads, maxDownloadThreads, maxBatchOperationThreads, uploadChunkStep, downloadChunkStep, defaultDownloadPath, retryMaxAttempts, retryBaseDelay, retryMaxDelay])
 
   const [showSecret, setShowSecret] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -146,6 +150,7 @@ export function SettingsDialog({
       maxUploadThreads: concurrencyData.maxUploadThreads,
       maxDownloadThreads: concurrencyData.maxDownloadThreads,
     })
+    setBatchOperationThreads(concurrencyData.maxBatchOperationThreads)
     setChunkStepSettings({
       uploadChunkStep: concurrencyData.uploadChunkStepMB * 1024 * 1024,
       downloadChunkStep: concurrencyData.downloadChunkStepMB * 1024 * 1024,
@@ -329,6 +334,26 @@ export function SettingsDialog({
             className="font-mono text-sm"
           />
         </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs text-muted-foreground">批量操作并发数</label>
+        <Input
+          type="number"
+          min={1}
+          max={8}
+          value={concurrencyData.maxBatchOperationThreads}
+          onChange={(e) =>
+            setConcurrencyData((prev) => ({
+              ...prev,
+              maxBatchOperationThreads: Math.max(1, Math.min(8, parseInt(e.target.value) || 4)),
+            }))
+          }
+          className="font-mono text-sm"
+        />
+        <p className="text-xs text-muted-foreground">
+          批量复制/移动操作的最大并发数（1-8），默认 4，较高的值可能触发 R2 限流
+        </p>
       </div>
 
       <p className="text-xs text-muted-foreground">
@@ -578,6 +603,7 @@ export function SettingsDialog({
               setConcurrencyData({
                 maxUploadThreads: DEFAULT_CONFIG.maxUploadThreads,
                 maxDownloadThreads: DEFAULT_CONFIG.maxDownloadThreads,
+                maxBatchOperationThreads: DEFAULT_CONFIG.maxBatchOperationThreads,
                 uploadChunkStepMB: DEFAULT_CONFIG.uploadChunkStep / (1024 * 1024),
                 downloadChunkStepMB: DEFAULT_CONFIG.downloadChunkStep / (1024 * 1024),
                 defaultDownloadPath: DEFAULT_CONFIG.defaultDownloadPath,

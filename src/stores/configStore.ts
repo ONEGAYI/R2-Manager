@@ -15,6 +15,7 @@ export const DEFAULT_CONFIG = {
   defaultBucket: undefined as string | undefined,
   maxUploadThreads: 4,
   maxDownloadThreads: 4,
+  maxBatchOperationThreads: 4, // 批量操作并发数
   uploadChunkStep: DEFAULT_UPLOAD_CHUNK_STEP,
   downloadChunkStep: DEFAULT_DOWNLOAD_CHUNK_STEP,
   defaultDownloadPath: '',
@@ -28,6 +29,7 @@ interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
   // 并发设置
   maxUploadThreads: number
   maxDownloadThreads: number
+  maxBatchOperationThreads: number // 批量操作并发数
 
   // 分块步长设置（字节）
   uploadChunkStep: number
@@ -54,6 +56,7 @@ interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
   setViewMode: (mode: AppConfig['viewMode']) => void
   setDefaultBucket: (bucket?: string) => void
   setConcurrencySettings: (settings: { maxUploadThreads?: number; maxDownloadThreads?: number }) => void
+  setBatchOperationThreads: (threads: number) => void
   setDownloadPath: (path: string) => void
   setChunkStepSettings: (settings: { uploadChunkStep?: number; downloadChunkStep?: number }) => void
   setRetrySettings: (settings: { retryMaxAttempts?: number; retryBaseDelay?: number; retryMaxDelay?: number }) => void
@@ -78,6 +81,7 @@ type PersistedConfigState = {
   defaultBucket: string | undefined
   maxUploadThreads: number
   maxDownloadThreads: number
+  maxBatchOperationThreads: number
   uploadChunkStep: number
   downloadChunkStep: number
   defaultDownloadPath: string
@@ -124,6 +128,7 @@ export const useConfigStore = create<ConfigState>()(
       setViewMode: (viewMode) => set({ viewMode }),
       setDefaultBucket: (defaultBucket) => set({ defaultBucket }),
       setConcurrencySettings: (settings) => set((state) => ({ ...state, ...settings })),
+      setBatchOperationThreads: (maxBatchOperationThreads) => set({ maxBatchOperationThreads }),
       setDownloadPath: (defaultDownloadPath) => set({ defaultDownloadPath }),
       setChunkStepSettings: (settings) => set((state) => ({ ...state, ...settings })),
       setRetrySettings: (settings) => set((state) => ({ ...state, ...settings })),
@@ -150,6 +155,7 @@ export const useConfigStore = create<ConfigState>()(
         defaultBucket: state.defaultBucket,
         maxUploadThreads: state.maxUploadThreads,
         maxDownloadThreads: state.maxDownloadThreads,
+        maxBatchOperationThreads: state.maxBatchOperationThreads,
         uploadChunkStep: state.uploadChunkStep,
         downloadChunkStep: state.downloadChunkStep,
         defaultDownloadPath: state.defaultDownloadPath,

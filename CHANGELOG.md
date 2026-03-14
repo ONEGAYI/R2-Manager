@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.13] - 2026-03-14
+
+### Added
+- **批量操作并发数配置** - 用户可自定义批量复制/移动的并发数
+  - `src/stores/configStore.ts` - 新增 `maxBatchOperationThreads` 配置项（默认 4，范围 1-8）
+  - `src/components/config/SettingsDialog.tsx` - 设置对话框并发标签页添加批量操作并发数输入控件
+  - `src/services/api.ts` - `batchCopyWithProgress()` 和 `batchMoveWithProgress()` 新增 `maxConcurrency` 参数
+  - `src/App.tsx` - 批量操作调用时使用用户配置的并发数
+
+### Improved
+- **批量复制/移动并行优化** - 从串行处理改为并行处理
+  - `server/index.js` - 新增 `runWithConcurrency()` 通用并发执行器
+  - 批量复制 API 使用并发执行器，支持 `maxConcurrency` 参数
+  - 批量移动 API 使用并发执行器，支持 `maxConcurrency` 参数
+  - 使用共享 stats 对象实现原子统计更新
+  - 多个文件夹可同时并行处理，显著提升批量操作速度
+
+### Technical
+- **并发执行器设计**：
+  - Worker 池模式：启动 N 个 worker 协同消费任务队列
+  - 进度回调：每完成一项立即报告进度
+  - 错误隔离：单个任务失败不影响其他任务
+- **性能提升**：选中 10 个文件夹复制时，并发数 4 可提升约 3-4 倍速度
+
+---
+
 ## [0.9.12] - 2026-03-14
 
 ### Improved

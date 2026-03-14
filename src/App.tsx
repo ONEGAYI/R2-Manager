@@ -1123,11 +1123,13 @@ function App() {
     // 异步执行操作（不阻塞对话框关闭）
     ;(async () => {
       try {
+        const { maxBatchOperationThreads } = useConfigStore.getState()
         const result = await api.batchMoveWithProgress(
           selectedBucket,
           items,
           destinationBucket,
           false,
+          maxBatchOperationThreads,
           (progressData) => {
             // 更新进度
             if (progressData.type === 'progress' && progressData.current && progressData.total) {
@@ -1194,11 +1196,13 @@ function App() {
     // 异步执行操作（不阻塞对话框关闭）
     ;(async () => {
       try {
+        const { maxBatchOperationThreads } = useConfigStore.getState()
         const result = await api.batchCopyWithProgress(
           selectedBucket,
           items,
           destinationBucket,
           false,
+          maxBatchOperationThreads,
           (progressData) => {
             // 更新进度
             if (progressData.type === 'progress' && progressData.current && progressData.total) {

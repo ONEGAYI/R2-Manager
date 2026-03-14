@@ -358,6 +358,7 @@ class ApiService {
     }>,
     destinationBucket?: string,
     overwrite: boolean = false,
+    maxConcurrency: number = 4,
     onProgress?: (data: {
       type: 'progress' | 'complete' | 'error' | 'log'
       current?: number
@@ -452,7 +453,7 @@ class ApiService {
 
       xhr.onerror = () => reject(new Error('Network error'))
 
-      xhr.send(JSON.stringify({ items, destinationBucket, overwrite }))
+      xhr.send(JSON.stringify({ items, destinationBucket, overwrite, maxConcurrency }))
     })
   }
 
@@ -466,6 +467,7 @@ class ApiService {
     }>,
     destinationBucket?: string,
     overwrite: boolean = false,
+    maxConcurrency: number = 4,
     onProgress?: (data: {
       type: 'progress' | 'complete' | 'error'
       current?: number
@@ -553,7 +555,7 @@ class ApiService {
 
       xhr.onerror = () => reject(new Error('Network error'))
 
-      xhr.send(JSON.stringify({ items, destinationBucket, overwrite }))
+      xhr.send(JSON.stringify({ items, destinationBucket, overwrite, maxConcurrency }))
     })
   }
 
