@@ -79,20 +79,44 @@ export interface TransferTask {
 }
 
 /**
+ * 批量操作结果详情项
+ */
+export interface ResultDetailItem {
+  sourceKey: string
+  status: 'success' | 'skipped' | 'error' | 'renamed'
+  error?: string
+  skipReason?: string
+  renamedTo?: string
+}
+
+/**
+ * 批量操作结果详情
+ */
+export interface ResultDetails {
+  totalSuccess: number
+  totalSkipped: number
+  totalErrors: number
+  totalRenamed?: number
+  items: ResultDetailItem[]
+}
+
+/**
  * 传输历史记录（已完成的任务）
  */
 export interface TransferHistory {
   id: string
   direction: TransferDirection
+  operation?: 'copy' | 'move'  // 操作类型
   fileName: string
   filePath: string
   bucketName: string
   fileSize: number
-  status: 'completed' | 'error'
+  status: 'completed' | 'error' | 'partial'  // 新增 partial 部分成功
   error?: string
   startTime: number
   completedAt: number
   localPath?: string         // 下载文件的本地路径
+  resultDetails?: ResultDetails  // 批量操作结果详情
 }
 
 /**

@@ -357,7 +357,7 @@ export const useTransferStore = create<TransferState>()(
               currentSourceKey
             }
 
-            // 如果有 items 列表，更新对应项的状态
+            // 如果有 items 列表，将当前处理的项标记为 running
             if (task.items && currentSourceKey) {
               const newItems = task.items.map(item => {
                 if (item.sourceKey === currentSourceKey && item.status === 'pending') {

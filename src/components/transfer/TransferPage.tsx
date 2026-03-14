@@ -5,7 +5,7 @@ import { TaskList } from './TaskList'
 import { HistoryList } from './HistoryList'
 import { useTransferStore } from '@/stores/transferStore'
 import { Button } from '@/components/ui/button'
-import type { TransferTab, TransferDirection } from '@/types/transfer'
+import type { TransferTab } from '@/types/transfer'
 
 interface TransferPageProps {
   onPauseUpload?: (taskId: string) => void

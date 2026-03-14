@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] - 2026-03-14
+
+### Added
+- **批量操作冲突处理策略增强** - 支持更多冲突解决方式
+  - `src/types/file.ts` - 新增 `ConflictStrategy` 类型（skip/overwrite/rename/ask）
+  - `server/index.js` - 新增 `findAvailableName()` 自动生成唯一文件名（file.txt → file (1).txt）
+  - `server/index.js` - 新增 `generateUniqueNamesBatch()` 批量预生成重命名映射
+  - `server/index.js` - 新增 `/detect-conflicts` API 端点批量检测冲突
+  - `src/services/api.ts` - 新增 `detectConflicts()` 方法
+- **冲突对话框 UI 增强**
+  - `src/components/file/ConflictDialog.tsx` - 新增"保留两者"选项（自动重命名）
+  - 显示源/目标文件详细信息（大小、修改时间）
+  - 新增"应用到所有冲突"复选框，批量处理时一键应用策略
+  - `src/components/ui/checkbox.tsx` - 新增 shadcn/ui Checkbox 组件
+- **历史记录增强**
+  - `src/types/transfer.ts` - 新增 `ResultDetails` 和 `ResultDetailItem` 类型
+  - `src/types/transfer.ts` - 新增 `partial` 状态表示部分成功
+  - `src/components/transfer/OperationResultDetails.tsx` - 新增操作结果详情组件
+  - `src/components/transfer/HistoryItem.tsx` - 支持批量操作结果显示和展开详情
+  - 显示统计标签：成功/重命名/跳过/失败数量
+
+### Improved
+- **SSE 实时进度优化** - 批量操作子项状态实时更新
+  - `server/index.js` - `reportBatchProgress()` 新增 `itemComplete` 事件类型
+  - 每个子项完成后立即发送包含详细状态的 SSE 事件
+  - `src/App.tsx` - 处理 `itemComplete` 事件实时更新子项状态
+  - `src/services/api.ts` - API 回调新增 `itemComplete` 类型支持
+
+### Fixed
+- **MoveCopyDialog 批量模式默认桶选择** - 修复 `item` 为 undefined 时 useEffect 不执行的问题
+  - 将条件从 `if (open && item)` 改为 `if (open)`
+- **ProgressBubble 子项状态不更新** - 通过 SSE `itemComplete` 事件实现实时更新
+
+---
+
 ## [0.9.15] - 2026-03-14
 
 ### Added

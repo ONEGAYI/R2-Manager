@@ -25,6 +25,7 @@ import { initLogger } from '@/lib/logger'
 import { ChunkedDownloader, shouldUseChunkedDownload } from '@/services/chunkedDownload'
 import { ChunkedUploader, shouldUseChunkedUpload, type ResumeOptions } from '@/services/chunkedUpload'
 import type { ChunkedUploaderState, ChunkedDownloaderState, ResumeDownloadOptions } from '@/types/chunk'
+import type { ConflictStrategy } from '@/types/file'
 import { transferLogger } from '@/lib/transferLogger'
 import { registerAbortFn, unregisterAbortFn } from '@/lib/abortRegistry'
 import { downloadCacheManager } from '@/lib/downloadCacheManager'
@@ -1143,7 +1144,8 @@ function App() {
   // 处理批量移动 - 集成传输中心
   const handleBatchMove = useCallback(async (
     items: Array<{ sourceKey: string; destinationKey: string; isFolder: boolean }>,
-    destinationBucket?: string
+    destinationBucket?: string,
+    conflictStrategy: ConflictStrategy = 'skip'
   ): Promise<boolean> => {
     if (!selectedBucket) return false
 
@@ -1176,7 +1178,7 @@ function App() {
           selectedBucket,
           items,
           destinationBucket,
-          false,
+          conflictStrategy,
           maxBatchOperationThreads,
           (progressData) => {
             // 更新进度
@@ -1184,19 +1186,33 @@ function App() {
               const progress = Math.round((progressData.current / progressData.total) * 100)
               updateBatchProgress(taskId, progressData.current, progress, progressData.currentSourceKey)
             }
+            // 处理单项完成事件（实时更新子项状态）
+            if (progressData.type === 'itemComplete' && progressData.sourceKey) {
+              if (progressData.status === 'success') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'completed')
+              } else if (progressData.status === 'skipped') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'skipped', progressData.skipReason)
+              } else if (progressData.status === 'renamed') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'completed', `重命名为 ${progressData.renamedTo}`)
+              } else if (progressData.status === 'error') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'error', progressData.error)
+              }
+            }
           }
         )
 
         // 更新最终进度和子项状态
-        const completedItems = result.totalMoved + (result.totalSkipped || 0)
+        const completedItems = result.totalMoved + (result.totalSkipped || 0) + (result.totalRenamed || 0)
         updateBatchProgress(taskId, completedItems, 100)
 
-        // 更新子项最终状态
+        // 更新子项最终状态（确保所有项都被更新）
         result.results.forEach(r => {
           if (r.status === 'success') {
             updateBatchItemStatus(taskId, r.sourceKey, 'completed')
           } else if (r.status === 'skipped') {
             updateBatchItemStatus(taskId, r.sourceKey, 'skipped', r.skipReason)
+          } else if (r.status === 'renamed') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'completed', `重命名为 ${r.renamedTo}`)
           } else if (r.status === 'error') {
             updateBatchItemStatus(taskId, r.sourceKey, 'error', r.error)
           }
@@ -1207,6 +1223,7 @@ function App() {
         if (task) {
           const parts = []
           if (result.totalSkipped > 0) parts.push(`${result.totalSkipped} 项跳过`)
+          if (result.totalRenamed > 0) parts.push(`${result.totalRenamed} 项重命名`)
           if (result.totalErrors > 0) parts.push(`${result.totalErrors} 项失败`)
           if (parts.length > 0) {
             moveToHistory(task, result.totalErrors > 0 ? 'error' : 'completed', parts.join(', '))
@@ -1236,7 +1253,7 @@ function App() {
     sourceKey: string
     destinationKey: string
     isFolder: boolean
-  }>, destinationBucket?: string): Promise<boolean> => {
+  }>, destinationBucket?: string, conflictStrategy: ConflictStrategy = 'skip'): Promise<boolean> => {
     if (!selectedBucket) return false
 
     const { addBatchOperationTask, updateBatchProgress, updateBatchItemStatus, moveToHistory } = useTransferStore.getState()
@@ -1267,7 +1284,7 @@ function App() {
           selectedBucket,
           items,
           destinationBucket,
-          false,
+          conflictStrategy,
           maxBatchOperationThreads,
           (progressData) => {
             // 更新进度
@@ -1280,19 +1297,33 @@ function App() {
                 progressData.currentSourceKey
               )
             }
+            // 处理单项完成事件（实时更新子项状态）
+            if (progressData.type === 'itemComplete' && progressData.sourceKey) {
+              if (progressData.status === 'success') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'completed')
+              } else if (progressData.status === 'skipped') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'skipped', progressData.skipReason)
+              } else if (progressData.status === 'renamed') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'completed', `重命名为 ${progressData.renamedTo}`)
+              } else if (progressData.status === 'error') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'error', progressData.error)
+              }
+            }
           }
         )
 
         // 完成后更新状态（跳过的也计入已完成）
-        const completedItems = result.totalCopied + (result.totalSkipped || 0)
+        const completedItems = result.totalCopied + (result.totalSkipped || 0) + (result.totalRenamed || 0)
         updateBatchProgress(taskId, completedItems, 100)
 
-        // 更新子项最终状态
+        // 更新子项最终状态（确保所有项都被更新）
         result.results.forEach(r => {
           if (r.status === 'success') {
             updateBatchItemStatus(taskId, r.sourceKey, 'completed')
           } else if (r.status === 'skipped') {
             updateBatchItemStatus(taskId, r.sourceKey, 'skipped', r.skipReason)
+          } else if (r.status === 'renamed') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'completed', `重命名为 ${r.renamedTo}`)
           } else if (r.status === 'error') {
             updateBatchItemStatus(taskId, r.sourceKey, 'error', r.error)
           }
@@ -1303,6 +1334,7 @@ function App() {
         if (task) {
           const parts = []
           if (result.totalSkipped > 0) parts.push(`${result.totalSkipped} 项跳过`)
+          if (result.totalRenamed > 0) parts.push(`${result.totalRenamed} 项重命名`)
           if (result.totalErrors > 0) parts.push(`${result.totalErrors} 项失败`)
           if (parts.length > 0) {
             moveToHistory(task, result.totalErrors > 0 ? 'error' : 'completed', parts.join(', '))

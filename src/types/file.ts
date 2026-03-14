@@ -47,16 +47,22 @@ export interface BatchOperationItem {
 }
 
 /**
+ * 冲突处理策略
+ */
+export type ConflictStrategy = 'skip' | 'overwrite' | 'rename' | 'ask'
+
+/**
  * 批量操作结果项
  */
 export interface BatchOperationResultItem {
   sourceKey: string
   destinationKey: string
-  status: 'success' | 'skipped' | 'error'
+  status: 'success' | 'skipped' | 'error' | 'renamed'
   copied?: number
   moved?: number
   error?: string
   skipReason?: string
+  renamedTo?: string  // 重命名后的目标路径
 }
 
 /**
@@ -70,4 +76,5 @@ export interface BatchOperationResponse {
   totalMoved?: number
   totalSkipped: number
   totalErrors: number
+  totalRenamed?: number  // 重命名的数量
 }
