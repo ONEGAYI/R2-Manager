@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.12] - 2026-03-14
+
+### Improved
+- **批量冲突检测性能优化** - 使用 ListObjects 替代逐个 HeadObject
+  - `server/index.js` - 新增 `detectConflictsWithListObjects()` 函数
+  - 批量操作前预先检测所有顶层单文件冲突（1 次 ListObjects vs N 次 HEAD）
+  - 文件夹复制/移动使用批量冲突检测，跳过冲突文件继续处理
+  - 冲突文件计入跳过统计，不再中断整个操作
+- **SSE 日志功能** - 后端日志输出到浏览器控制台
+  - `server/index.js` - 新增 `sendSSELog()` 函数
+  - `src/services/api.ts` - 前端处理 `log` 类型 SSE 事件
+  - 便于调试批量操作的冲突检测过程
+
+### Technical
+- **批量冲突检测算法**：
+  1. 收集所有待检测项的目标目录前缀
+  2. 对每个前缀发起一次 ListObjects 请求（并行）
+  3. 本地检测哪些目标文件已存在
+- **性能对比**：选中 20 个文件复制时，从 20 次 HEAD 请求 → 1-2 次 ListObjects 请求
+
+---
+
 ## [0.9.11] - 2026-03-14
 
 ### Fixed

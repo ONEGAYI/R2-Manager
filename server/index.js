@@ -145,6 +145,60 @@ app.delete('/api/buckets/:bucketName', async (req, res) => {
   }
 })
 
+/**
+ * 批量冲突检测（ListObjects 方案）
+ * @param {string} bucket - 源桶名
+ * @param {string} targetBucket - 目标桶名
+ * @param {Array<{sourceKey: string, targetKey: string}>} items - 待检测项
+ * @returns {Promise<Set<string>>} 冲突的 targetKey 集合
+ */
+async function detectConflictsWithListObjects(bucket, targetBucket, items) {
+  if (items.length === 0) return new Set()
+
+  // 1. 收集所有需要检查的目标目录（按前缀分组）
+  const targetPrefixes = new Set()
+  for (const item of items) {
+    // 获取目标路径的目录前缀
+    const lastSlash = item.targetKey.lastIndexOf('/')
+    const prefix = lastSlash >= 0 ? item.targetKey.substring(0, lastSlash + 1) : ''
+    targetPrefixes.add(prefix)
+  }
+
+  // 2. 批量获取各目录的文件列表（并行请求）
+  const existingKeys = new Set()
+  await Promise.all(
+    Array.from(targetPrefixes).map(async (prefix) => {
+      let continuationToken = undefined
+      do {
+        const listCommand = new ListObjectsV2Command({
+          Bucket: targetBucket || bucket,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+          MaxKeys: 1000,
+        })
+        const response = await r2Client.send(listCommand)
+
+        if (response.Contents) {
+          for (const obj of response.Contents) {
+            existingKeys.add(obj.Key)
+          }
+        }
+        continuationToken = response.NextContinuationToken
+      } while (continuationToken)
+    })
+  )
+
+  // 3. 本地检测冲突
+  const conflicts = new Set()
+  for (const item of items) {
+    if (existingKeys.has(item.targetKey)) {
+      conflicts.add(item.targetKey)
+    }
+  }
+
+  return conflicts
+}
+
 // API: 列出对象
 app.get('/api/buckets/:bucketName/objects', async (req, res) => {
   if (!r2Client) {
@@ -563,31 +617,34 @@ app.post('/api/buckets/:bucketName/objects/:key(*)/copy', async (req, res) => {
         })
       }
 
-      // 逐个复制子对象
+      // 构建子项列表
+      const subItems = allObjects.map(obj => {
+        const relativePath = obj.Key.substring(sourceKey.length)
+        const targetKey = `${destinationKey}${relativePath}`
+        return { sourceKey: obj.Key, targetKey }
+      })
+
+      // 批量冲突检测（ListObjects 方案）
+      let conflictKeys = new Set()
+      if (!overwrite) {
+        conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+        console.log(`[Copy] 冲突检测完成: ${conflictKeys.size} 个冲突`)
+      }
+
+      // 逐个复制子对象，跳过冲突的
       let copiedCount = 0
+      let skippedCount = 0
+      const skippedFiles = []
+
       for (const obj of allObjects) {
         const relativePath = obj.Key.substring(sourceKey.length)
         const targetKey = `${destinationKey}${relativePath}`
 
-        // 冲突检测
-        if (!overwrite) {
-          try {
-            const headCommand = new HeadObjectCommand({
-              Bucket: targetBucket,
-              Key: targetKey,
-            })
-            await r2Client.send(headCommand)
-            // 目标已存在，返回冲突错误
-            return res.status(409).json({
-              error: '目标路径已存在',
-              conflictKey: targetKey,
-            })
-          } catch (headError) {
-            // 目标不存在，可以继续复制
-            if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
-              throw headError
-            }
-          }
+        // 使用本地冲突检测结果
+        if (!overwrite && conflictKeys.has(targetKey)) {
+          skippedCount++
+          skippedFiles.push(targetKey)
+          continue  // 跳过冲突文件，继续处理其他
         }
 
         const copyCommand = new CopyObjectCommand({
@@ -601,8 +658,12 @@ app.post('/api/buckets/:bucketName/objects/:key(*)/copy', async (req, res) => {
 
       res.json({
         success: true,
-        message: `文件夹复制成功，共复制 ${copiedCount} 个对象`,
+        message: copiedCount > 0
+          ? `文件夹复制成功，复制 ${copiedCount} 个，跳过 ${skippedCount} 个`
+          : `文件夹复制完成，跳过 ${skippedCount} 个冲突文件`,
         copied: copiedCount,
+        skipped: skippedCount,
+        skippedFiles: skippedFiles.length <= 10 ? skippedFiles : undefined,
       })
     } else {
       // 单文件复制
@@ -720,33 +781,35 @@ app.post('/api/buckets/:bucketName/objects/:key(*)/move', async (req, res) => {
         })
       }
 
-      // 逐个复制子对象
+      // 构建子项列表
+      const subItems = allObjects.map(obj => {
+        const relativePath = obj.Key.substring(sourceKey.length)
+        const targetKey = `${destinationKey}${relativePath}`
+        return { sourceKey: obj.Key, targetKey }
+      })
+
+      // 批量冲突检测（ListObjects 方案）
+      let conflictKeys = new Set()
+      if (!overwrite) {
+        conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+        console.log(`[Move] 冲突检测完成: ${conflictKeys.size} 个冲突`)
+      }
+
+      // 逐个复制子对象，跳过冲突的
       let movedCount = 0
+      let skippedCount = 0
       const copiedKeys = []
+      const skippedFiles = []
 
       for (const obj of allObjects) {
         const relativePath = obj.Key.substring(sourceKey.length)
         const targetKey = `${destinationKey}${relativePath}`
 
-        // 冲突检测
-        if (!overwrite) {
-          try {
-            const headCommand = new HeadObjectCommand({
-              Bucket: targetBucket,
-              Key: targetKey,
-            })
-            await r2Client.send(headCommand)
-            // 目标已存在，返回冲突错误
-            return res.status(409).json({
-              error: '目标路径已存在',
-              conflictKey: targetKey,
-            })
-          } catch (headError) {
-            // 目标不存在，可以继续复制
-            if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
-              throw headError
-            }
-          }
+        // 使用本地冲突检测结果
+        if (!overwrite && conflictKeys.has(targetKey)) {
+          skippedCount++
+          skippedFiles.push(targetKey)
+          continue  // 跳过冲突文件，继续处理其他
         }
 
         const copyCommand = new CopyObjectCommand({
@@ -759,23 +822,29 @@ app.post('/api/buckets/:bucketName/objects/:key(*)/move', async (req, res) => {
         movedCount++
       }
 
-      // 批量删除源对象
-      for (let i = 0; i < copiedKeys.length; i += 1000) {
-        const batch = copiedKeys.slice(i, i + 1000)
-        const deleteCommand = new DeleteObjectsCommand({
-          Bucket: bucketName,
-          Delete: {
-            Objects: batch.map((k) => ({ Key: k })),
-            Quiet: true,
-          },
-        })
-        await r2Client.send(deleteCommand)
+      // 批量删除已成功复制的源对象
+      if (copiedKeys.length > 0) {
+        for (let i = 0; i < copiedKeys.length; i += 1000) {
+          const batch = copiedKeys.slice(i, i + 1000)
+          const deleteCommand = new DeleteObjectsCommand({
+            Bucket: bucketName,
+            Delete: {
+              Objects: batch.map((k) => ({ Key: k })),
+              Quiet: true,
+            },
+          })
+          await r2Client.send(deleteCommand)
+        }
       }
 
       res.json({
         success: true,
-        message: `文件夹移动成功，共移动 ${movedCount} 个对象`,
+        message: movedCount > 0
+          ? `文件夹移动成功，移动 ${movedCount} 个，跳过 ${skippedCount} 个`
+          : `文件夹移动完成，跳过 ${skippedCount} 个冲突文件`,
         moved: movedCount,
+        skipped: skippedCount,
+        skippedFiles: skippedFiles.length <= 10 ? skippedFiles : undefined,
       })
     } else {
       // 单文件移动
@@ -869,6 +938,12 @@ function sendSSEProgress(res, data) {
   res.write(`data: ${JSON.stringify(data)}\n\n`)
 }
 
+// SSE 日志发送（输出到浏览器控制台）
+function sendSSELog(res, isSSERequest, message, level = 'info') {
+  if (!isSSERequest) return
+  sendSSEProgress(res, { type: 'log', message, level })
+}
+
 // 批量操作进度报告（统一封装）
 function reportBatchProgress(res, isSSERequest, opts) {
   if (!isSSERequest) return
@@ -916,6 +991,20 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
   let totalSkipped = 0
   let totalErrors = 0
   const totalItems = items.length
+
+  // 收集所有顶层单文件项，批量检测冲突
+  const topLevelSingleFiles = items.filter(item => !item.isFolder && !item.sourceKey.endsWith('/'))
+    .map(item => ({
+      sourceKey: item.sourceKey,
+      targetKey: item.destinationKey
+    }))
+
+  let topLevelConflicts = new Set()
+  if (!overwrite && topLevelSingleFiles.length > 0) {
+    sendSSELog(res, isSSERequest, `[BatchCopy] 开始顶层单文件冲突检测: ${topLevelSingleFiles.length} 个文件`)
+    topLevelConflicts = await detectConflictsWithListObjects(bucketName, targetBucket, topLevelSingleFiles)
+    sendSSELog(res, isSSERequest, `[BatchCopy] 顶层单文件冲突检测完成: ${topLevelConflicts.size} 个冲突`)
+  }
 
   try {
     for (let i = 0; i < items.length; i++) {
@@ -1002,31 +1091,35 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
             continue
           }
 
-          // 逐个复制子对象
+          // 批量冲突检测（ListObjects 方案）
+          sendSSELog(res, isSSERequest, `[BatchCopy] 开始文件夹复制: ${sourceKey} -> ${destinationKey}, 子对象数: ${allObjects.length}, overwrite: ${overwrite}`)
+
+          const subItems = allObjects.map(obj => {
+            const relativePath = obj.Key.substring(sourceKey.length)
+            const targetKey = `${destinationKey}${relativePath}`
+            return { sourceKey: obj.Key, targetKey }
+          })
+
+          let conflictKeys = new Set()
+          if (!overwrite) {
+            conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+            sendSSELog(res, isSSERequest, `[BatchCopy] 冲突检测完成: ${conflictKeys.size} 个冲突`)
+          }
+
+          // 逐个复制子对象，跳过冲突的
           let copiedCount = 0
-          let hasError = false
-          let errorMsg = ''
+          let skippedCount = 0
+          const skippedFiles = []
 
           for (const obj of allObjects) {
             const relativePath = obj.Key.substring(sourceKey.length)
             const targetKey = `${destinationKey}${relativePath}`
 
-            // 冲突检测
-            if (!overwrite) {
-              try {
-                const headCommand = new HeadObjectCommand({
-                  Bucket: targetBucket,
-                  Key: targetKey,
-                })
-                await r2Client.send(headCommand)
-                hasError = true
-                errorMsg = `目标路径已存在: ${targetKey}`
-                break
-              } catch (headError) {
-                if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
-                  throw headError
-                }
-              }
+            // 使用本地冲突检测结果
+            if (!overwrite && conflictKeys.has(targetKey)) {
+              skippedCount++
+              skippedFiles.push(targetKey)
+              continue  // 跳过冲突文件，继续处理其他
             }
 
             const copyCommand = new CopyObjectCommand({
@@ -1038,52 +1131,36 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
             copiedCount++
           }
 
-          if (hasError) {
-            results.push({
-              sourceKey,
-              destinationKey,
-              status: 'error',
-              error: errorMsg,
-            })
-            totalErrors++
-          } else {
-            results.push({
-              sourceKey,
-              destinationKey,
-              status: 'success',
-              copied: copiedCount,
-            })
-            totalCopied += copiedCount
-          }
+          // 更新统计
+          totalCopied += copiedCount
+          totalSkipped += skippedCount
+
+          results.push({
+            sourceKey,
+            destinationKey,
+            status: copiedCount > 0 ? 'success' : 'skipped',
+            copied: copiedCount,
+            skipped: skippedCount,
+            skippedFiles: skippedFiles.length <= 10 ? skippedFiles : undefined,
+          })
         } else {
-          // 单文件复制
-          if (!overwrite) {
-            try {
-              const headCommand = new HeadObjectCommand({
-                Bucket: targetBucket,
-                Key: destinationKey,
-              })
-              await r2Client.send(headCommand)
-              results.push({
-                sourceKey,
-                destinationKey,
-                status: 'skipped',
-                skipReason: '目标已存在',
-              })
-              totalSkipped++
-              reportBatchProgress(res, isSSERequest, {
-                current: i + 1,
-                total: totalItems,
-                sourceKey,
-                destKey: destinationKey,
-                stats: { totalCopied, totalSkipped, totalErrors }
-              })
-              continue
-            } catch (headError) {
-              if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
-                throw headError
-              }
-            }
+          // 单文件复制 - 使用预先批量检测的冲突结果
+          if (!overwrite && topLevelConflicts.has(destinationKey)) {
+            results.push({
+              sourceKey,
+              destinationKey,
+              status: 'skipped',
+              skipReason: '目标已存在',
+            })
+            totalSkipped++
+            reportBatchProgress(res, isSSERequest, {
+              current: i + 1,
+              total: totalItems,
+              sourceKey,
+              destKey: destinationKey,
+              stats: { totalCopied, totalSkipped, totalErrors }
+            })
+            continue
           }
 
           const copyCommand = new CopyObjectCommand({
@@ -1178,6 +1255,20 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
   let totalMoved = 0
   let totalSkipped = 0
   let totalErrors = 0
+
+  // 收集所有顶层单文件项，批量检测冲突
+  const topLevelSingleFiles = items.filter(item => !item.isFolder && !item.sourceKey.endsWith('/'))
+    .map(item => ({
+      sourceKey: item.sourceKey,
+      targetKey: item.destinationKey
+    }))
+
+  let topLevelConflicts = new Set()
+  if (!overwrite && topLevelSingleFiles.length > 0) {
+    sendSSELog(res, isSSERequest, `[BatchMove] 开始顶层单文件冲突检测: ${topLevelSingleFiles.length} 个文件`)
+    topLevelConflicts = await detectConflictsWithListObjects(bucketName, targetBucket, topLevelSingleFiles)
+    sendSSELog(res, isSSERequest, `[BatchMove] 顶层单文件冲突检测完成: ${topLevelConflicts.size} 个冲突`)
+  }
 
   try {
     for (let i = 0; i < items.length; i++) {
@@ -1301,32 +1392,36 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
             continue
           }
 
-          // 逐个复制子对象
+          // 批量冲突检测（ListObjects 方案）
+          console.log(`[BatchMove] 开始文件夹移动: ${sourceKey} -> ${destinationKey}, 子对象数: ${allObjects.length}, overwrite: ${overwrite}`)
+
+          const subItems = allObjects.map(obj => {
+            const relativePath = obj.Key.substring(sourceKey.length)
+            const targetObjKey = `${destinationKey}${relativePath}`
+            return { sourceKey: obj.Key, targetKey: targetObjKey }
+          })
+
+          let conflictKeys = new Set()
+          if (!overwrite) {
+            conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+            sendSSELog(res, isSSERequest, `[BatchMove] 冲突检测完成: ${conflictKeys.size} 个冲突`)
+          }
+
+          // 逐个复制子对象，跳过冲突的
           let movedCount = 0
+          let skippedCount = 0
           const copiedKeys = []
-          let hasError = false
-          let errorMsg = ''
+          const skippedFiles = []
 
           for (const obj of allObjects) {
             const relativePath = obj.Key.substring(sourceKey.length)
             const targetObjKey = `${destinationKey}${relativePath}`
 
-            // 冲突检测
-            if (!overwrite) {
-              try {
-                const headCommand = new HeadObjectCommand({
-                  Bucket: targetBucket,
-                  Key: targetObjKey,
-                })
-                await r2Client.send(headCommand)
-                hasError = true
-                errorMsg = `目标路径已存在: ${targetObjKey}`
-                break
-              } catch (headError) {
-                if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
-                  throw headError
-                }
-              }
+            // 使用本地冲突检测结果
+            if (!overwrite && conflictKeys.has(targetObjKey)) {
+              skippedCount++
+              skippedFiles.push(targetObjKey)
+              continue  // 跳过冲突文件，继续处理其他
             }
 
             const copyCommand = new CopyObjectCommand({
@@ -1339,16 +1434,8 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
             movedCount++
           }
 
-          if (hasError) {
-            results.push({
-              sourceKey,
-              destinationKey,
-              status: 'error',
-              error: errorMsg,
-            })
-            totalErrors++
-          } else {
-            // 批量删除源对象
+          // 批量删除已成功复制的源对象
+          if (copiedKeys.length > 0) {
             for (let i = 0; i < copiedKeys.length; i += 1000) {
               const batch = copiedKeys.slice(i, i + 1000)
               const deleteCommand = new DeleteObjectsCommand({
@@ -1360,44 +1447,38 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
               })
               await r2Client.send(deleteCommand)
             }
+          }
 
+          // 更新统计
+          totalMoved += movedCount
+          totalSkipped += skippedCount
+
+          results.push({
+            sourceKey,
+            destinationKey,
+            status: movedCount > 0 ? 'success' : 'skipped',
+            moved: movedCount,
+            skipped: skippedCount,
+            skippedFiles: skippedFiles.length <= 10 ? skippedFiles : undefined,
+          })
+        } else {
+          // 单文件移动 - 使用预先批量检测的冲突结果
+          if (!overwrite && topLevelConflicts.has(destinationKey)) {
             results.push({
               sourceKey,
               destinationKey,
-              status: 'success',
-              moved: movedCount,
+              status: 'skipped',
+              skipReason: '目标已存在',
             })
-            totalMoved += movedCount
-          }
-        } else {
-          // 单文件移动
-          if (!overwrite) {
-            try {
-              const headCommand = new HeadObjectCommand({
-                Bucket: targetBucket,
-                Key: destinationKey,
-              })
-              await r2Client.send(headCommand)
-              results.push({
-                sourceKey,
-                destinationKey,
-                status: 'skipped',
-                skipReason: '目标已存在',
-              })
-              totalSkipped++
-              reportBatchProgress(res, isSSERequest, {
-                current: i + 1,
-                total: totalItems,
-                sourceKey,
-                destKey: destinationKey,
-                stats: { totalMoved, totalSkipped, totalErrors }
-              })
-              continue
-            } catch (headError) {
-              if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
-                throw headError
-              }
-            }
+            totalSkipped++
+            reportBatchProgress(res, isSSERequest, {
+              current: i + 1,
+              total: totalItems,
+              sourceKey,
+              destKey: destinationKey,
+              stats: { totalMoved, totalSkipped, totalErrors }
+            })
+            continue
           }
 
           // 复制

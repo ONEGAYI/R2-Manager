@@ -359,7 +359,7 @@ class ApiService {
     destinationBucket?: string,
     overwrite: boolean = false,
     onProgress?: (data: {
-      type: 'progress' | 'complete' | 'error'
+      type: 'progress' | 'complete' | 'error' | 'log'
       current?: number
       total?: number
       totalCopied?: number
@@ -367,6 +367,7 @@ class ApiService {
       totalErrors?: number
       message?: string
       error?: string
+      level?: 'info' | 'warn' | 'error'
     }) => void
   ): Promise<{
     success: boolean
@@ -403,6 +404,12 @@ class ApiService {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6))
+              // 处理日志事件，输出到浏览器控制台
+              if (data.type === 'log') {
+                const logMethod = data.level === 'error' ? console.error :
+                                  data.level === 'warn' ? console.warn : console.log
+                logMethod(data.message)
+              }
               if (onProgress) {
                 onProgress(data)
               }

@@ -632,7 +632,9 @@ function selectConflictStrategy(itemCount: number): ConflictStrategy {
 - [x] SSE 实时进度反馈
 - [x] 传输中心批量操作标签页
 - [ ] 进度气泡组件（最小化状态）
-- [ ] 批量冲突检测（ListObjects 方案）
+- [x] 批量冲突检测（ListObjects 方案）
+  - [x] 文件夹子文件批量检测（v0.9.8）
+  - [x] 顶层单文件批量检测（v0.9.12，性能优化）
 
 ### Phase 3：完善体验
 
@@ -641,7 +643,8 @@ function selectConflictStrategy(itemCount: number): ConflictStrategy {
 - [ ] 进度气泡展开状态
 - [ ] 长路径截断 + hover 提示
 - [ ] 操作结果详情
-- [ ] 优化速度
+- [ ] 对于单文件夹操作仍存在问题: 卡在dialog等处理、没有进入传输中心
+- [ ] 优化速度（并行请求？）
 
 ---
 
