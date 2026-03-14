@@ -1,6 +1,6 @@
 {
   "name": "r2-proxy-server",
-  "version": "0.9.13",
+  "version": "0.9.14",
   "main": "index.js",
   "bin": "index.js",
   "scripts": {

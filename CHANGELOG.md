@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.14] - 2026-03-14
+
+### Added
+- **进度气泡组件** - 批量复制/移动操作时显示实时进度反馈
+  - `src/components/transfer/CircularProgress.tsx` - 环形进度条组件（SVG + Framer Motion 动画）
+  - `src/components/transfer/ProgressBubble.tsx` - 进度气泡主组件
+  - 右下角固定位置，不遮挡主要内容
+  - 显示环形进度条 + 百分比 + 操作类型（复制/移动）
+  - 点击气泡跳转到传输中心页面
+  - 操作完成后自动隐藏
+
+---
+
 ## [0.9.13] - 2026-03-14
 
 ### Added

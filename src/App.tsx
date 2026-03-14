@@ -12,7 +12,7 @@ import { Loading } from '@/components/common/Loading'
 import { ConfigPage } from '@/components/config/ConfigPage'
 import { SettingsDialog } from '@/components/config/SettingsDialog'
 import { CreateBucket } from '@/components/bucket/CreateBucket'
-import { TransferPage } from '@/components/transfer'
+import { TransferPage, ProgressBubble } from '@/components/transfer'
 import { TRANSFER_PAGE_ID } from '@/components/layout/Sidebar'
 import { useBuckets } from '@/hooks/useBuckets'
 import { useConfig } from '@/hooks/useConfig'
@@ -1537,6 +1537,9 @@ function App() {
         batchMode={moveCopyDialog.batchMode}
         batchItems={moveCopyDialog.batchItems}
       />
+
+      {/* 批量操作进度气泡 */}
+      <ProgressBubble onClick={() => selectBucket(TRANSFER_PAGE_ID)} />
     </>
   )
 }

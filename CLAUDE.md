@@ -78,7 +78,9 @@ cloudflare-r2-manager/
 │   │   │   ├── TaskList.tsx          # 进行中任务列表
 │   │   │   ├── TaskItem.tsx          # 单个任务项（支持 copy/move）
 │   │   │   ├── HistoryList.tsx       # 历史记录列表
-│   │   │   └── HistoryItem.tsx       # 历史记录项
+│   │   │   ├── HistoryItem.tsx       # 历史记录项
+│   │   │   ├── ProgressBubble.tsx    # 进度气泡组件（批量操作进度反馈）
+│   │   │   └── CircularProgress.tsx  # 环形进度条组件
 │   │   └── 📁 common/                # 通用组件 (Loading, Empty, ThemeProvider, ThemeToggle, FileIcon)
 │   ├── 📁 hooks/                     # 自定义 Hooks (useConfig, useBuckets, useFiles, useUpload)
 │   ├── 📁 services/                  # API 服务层
