@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.15] - 2026-03-14
+
+### Added
+- **进度气泡 Hover 展开详情** - 悬停显示批量操作子项级别进度
+  - `src/types/transfer.ts` - 新增 `BatchOperationItem` 类型定义子项状态（pending/running/completed/skipped/error）
+  - `src/stores/transferStore.ts` - 新增 `updateBatchItemStatus()` 方法更新单个子项状态
+  - `src/lib/utils.ts` - 新增 `truncatePath()` 函数智能截断长路径
+  - 子项状态图标：⏳等待中 / 🔄处理中 / ✅完成 / ⚠️跳过 / ❌错误
+  - 自动滚动到正在处理的项（用户滚动时暂停 3 秒）
+  - 气泡宽度动画：200px → 320px
+
+### Improved
+- **批量操作进度追踪** - 实时更新每个子项的处理状态
+  - `src/App.tsx` - 批量操作初始化子项列表，完成后更新每个子项最终状态
+  - SSE 进度数据新增 `currentSourceKey` 字段标识当前处理的文件
+  - 跳过/错误状态显示具体原因
+
+---
+
 ## [0.9.14] - 2026-03-14
 
 ### Added

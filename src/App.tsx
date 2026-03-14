@@ -1147,7 +1147,14 @@ function App() {
   ): Promise<boolean> => {
     if (!selectedBucket) return false
 
-    const { addBatchOperationTask, updateBatchProgress, moveToHistory } = useTransferStore.getState()
+    const { addBatchOperationTask, updateBatchProgress, updateBatchItemStatus, moveToHistory } = useTransferStore.getState()
+
+    // 初始化子项列表
+    const batchItems = items.map(item => ({
+      sourceKey: item.sourceKey,
+      destinationKey: item.destinationKey,
+      status: 'pending' as const
+    }))
 
     // 创建传输任务
     const taskId = addBatchOperationTask({
@@ -1158,6 +1165,7 @@ function App() {
       destinationKey: items[0]?.destinationKey || '',
       destinationBucket,
       totalItems: items.length,
+      items: batchItems,  // 传入子项列表
     })
 
     // 异步执行操作（不阻塞对话框关闭）
@@ -1174,14 +1182,25 @@ function App() {
             // 更新进度
             if (progressData.type === 'progress' && progressData.current && progressData.total) {
               const progress = Math.round((progressData.current / progressData.total) * 100)
-              updateBatchProgress(taskId, progressData.current, progress)
+              updateBatchProgress(taskId, progressData.current, progress, progressData.currentSourceKey)
             }
           }
         )
 
-        // 更新最终进度（跳过的也计入已完成）
+        // 更新最终进度和子项状态
         const completedItems = result.totalMoved + (result.totalSkipped || 0)
         updateBatchProgress(taskId, completedItems, 100)
+
+        // 更新子项最终状态
+        result.results.forEach(r => {
+          if (r.status === 'success') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'completed')
+          } else if (r.status === 'skipped') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'skipped', r.skipReason)
+          } else if (r.status === 'error') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'error', r.error)
+          }
+        })
 
         // 移动到历史记录
         const task = useTransferStore.getState().getTaskById(taskId)
@@ -1220,9 +1239,15 @@ function App() {
   }>, destinationBucket?: string): Promise<boolean> => {
     if (!selectedBucket) return false
 
-    const { addBatchOperationTask, updateBatchProgress, moveToHistory } = useTransferStore.getState()
+    const { addBatchOperationTask, updateBatchProgress, updateBatchItemStatus, moveToHistory } = useTransferStore.getState()
 
-    // 创建传输任务
+    // 创建传输任务（包含子项列表）
+    const batchItems = items.map(item => ({
+      sourceKey: item.sourceKey,
+      destinationKey: item.destinationKey,
+      status: 'pending' as const
+    }))
+
     const taskId = addBatchOperationTask({
       direction: 'copy',
       fileName: `${items.length} 个项目`,
@@ -1231,6 +1256,7 @@ function App() {
       destinationKey: items[0]?.destinationKey || '',
       destinationBucket,
       totalItems: items.length,
+      items: batchItems
     })
 
     // 异步执行操作（不阻塞对话框关闭）
@@ -1247,7 +1273,12 @@ function App() {
             // 更新进度
             if (progressData.type === 'progress' && progressData.current && progressData.total) {
               const progress = Math.round((progressData.current / progressData.total) * 100)
-              updateBatchProgress(taskId, progressData.current, progress)
+              updateBatchProgress(
+                taskId,
+                progressData.current,
+                progress,
+                progressData.currentSourceKey
+              )
             }
           }
         )
@@ -1255,6 +1286,17 @@ function App() {
         // 完成后更新状态（跳过的也计入已完成）
         const completedItems = result.totalCopied + (result.totalSkipped || 0)
         updateBatchProgress(taskId, completedItems, 100)
+
+        // 更新子项最终状态
+        result.results.forEach(r => {
+          if (r.status === 'success') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'completed')
+          } else if (r.status === 'skipped') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'skipped', r.skipReason)
+          } else if (r.status === 'error') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'error', r.error)
+          }
+        })
 
         // 移动到历史记录
         const task = useTransferStore.getState().getTaskById(taskId)

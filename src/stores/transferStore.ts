@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware'
-import type { TransferTask, TransferHistory, TransferDirection, TransferOperation } from '@/types/transfer'
+import type { TransferTask, TransferHistory, TransferDirection, TransferOperation, BatchOperationItem } from '@/types/transfer'
 import type { PausedUploadState, PausedDownloadState } from '@/types/chunk'
 import { createHybridStorage } from '@/lib/tauriStorage'
 import { abortTask, unregisterAbortFn } from '@/lib/abortRegistry'
@@ -57,8 +57,10 @@ interface TransferState {
     destinationKey: string
     destinationBucket?: string
     totalItems: number
+    items?: BatchOperationItem[]  // 子项列表
   }) => string
-  updateBatchProgress: (id: string, completedItems: number, progress: number) => void
+  updateBatchProgress: (id: string, completedItems: number, progress: number, currentSourceKey?: string) => void
+  updateBatchItemStatus: (taskId: string, sourceKey: string, status: BatchOperationItem['status'], error?: string) => void
 }
 
 // 生成唯一 ID
@@ -329,6 +331,7 @@ export const useTransferStore = create<TransferState>()(
           fileSize: 0, // 批量操作不使用文件大小
           totalItems: params.totalItems,
           completedItems: 0,
+          items: params.items,  // 存储子项列表
           startTime: Date.now(),
           loadedBytes: 0,
           speed: 0,
@@ -342,13 +345,49 @@ export const useTransferStore = create<TransferState>()(
       },
 
       // 更新批量操作进度
-      updateBatchProgress: (id, completedItems, progress) => {
+      updateBatchProgress: (id, completedItems, progress, currentSourceKey) => {
         set((state) => ({
-          tasks: state.tasks.map((task) =>
-            task.id === id
-              ? { ...task, completedItems, progress, status: 'running' }
-              : task
-          ),
+          tasks: state.tasks.map((task) => {
+            if (task.id !== id) return task
+
+            const updates: Partial<TransferTask> = {
+              completedItems,
+              progress,
+              status: 'running',
+              currentSourceKey
+            }
+
+            // 如果有 items 列表，更新对应项的状态
+            if (task.items && currentSourceKey) {
+              const newItems = task.items.map(item => {
+                if (item.sourceKey === currentSourceKey && item.status === 'pending') {
+                  return { ...item, status: 'running' as const }
+                }
+                return item
+              })
+              updates.items = newItems
+            }
+
+            return { ...task, ...updates }
+          }),
+        }))
+      },
+
+      // 更新单个子项状态
+      updateBatchItemStatus: (taskId, sourceKey, status, error) => {
+        set((state) => ({
+          tasks: state.tasks.map((task) => {
+            if (task.id !== taskId || !task.items) return task
+
+            const newItems = task.items.map(item => {
+              if (item.sourceKey === sourceKey) {
+                return { ...item, status, error }
+              }
+              return item
+            })
+
+            return { ...task, items: newItems }
+          }),
         }))
       },
     }),

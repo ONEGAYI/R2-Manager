@@ -62,3 +62,36 @@ export function getFileType(filename: string): string {
 export function generateId(): string {
   return Math.random().toString(36).substring(2, 9)
 }
+
+/**
+ * 截断长路径，保留文件名
+ */
+export function truncatePath(path: string, maxLength: number = 40): {
+  display: string
+  full: string
+} {
+  if (path.length <= maxLength) {
+    return { display: path, full: path }
+  }
+
+  const lastSlash = path.lastIndexOf('/')
+  const fileName = lastSlash > 0 ? path.substring(lastSlash + 1) : path
+  const dirPath = lastSlash > 0 ? path.substring(0, lastSlash + 1) : ''
+
+  if (fileName.length >= maxLength - 5) {
+    return {
+      display: `...${fileName.substring(0, maxLength - 5)}...`,
+      full: path
+    }
+  }
+
+  const availableLength = maxLength - fileName.length - 4
+  const truncatedDir = dirPath.length > availableLength
+    ? `...${dirPath.substring(dirPath.length - availableLength)}`
+    : dirPath
+
+  return {
+    display: `${truncatedDir}${fileName}`,
+    full: path
+  }
+}

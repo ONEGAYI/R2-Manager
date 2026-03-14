@@ -4,6 +4,16 @@
 export type TransferDirection = 'upload' | 'download' | 'copy' | 'move'
 
 /**
+ * 批量操作子项状态
+ */
+export interface BatchOperationItem {
+  sourceKey: string
+  destinationKey: string
+  status: 'pending' | 'running' | 'completed' | 'skipped' | 'error'
+  error?: string
+}
+
+/**
  * 传输操作类型
  */
 export type TransferOperation = 'upload' | 'download' | 'copy' | 'move'
@@ -59,6 +69,8 @@ export interface TransferTask {
   destinationBucket?: string // 目标桶（跨桶操作）
   totalItems?: number        // 总项目数（批量操作）
   completedItems?: number    // 已完成项目数
+  items?: BatchOperationItem[]  // 批量操作的子项列表
+  currentSourceKey?: string  // 当前正在处理的源文件路径
   // 重试相关字段
   retrying?: boolean         // 是否正在重试
   retryAttempt?: number      // 当前重试次数

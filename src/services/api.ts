@@ -363,6 +363,8 @@ class ApiService {
       type: 'progress' | 'complete' | 'error' | 'log'
       current?: number
       total?: number
+      currentSourceKey?: string   // 当前处理的源文件
+      currentDestKey?: string     // 当前处理的目标文件
       totalCopied?: number
       totalSkipped?: number
       totalErrors?: number
@@ -469,14 +471,17 @@ class ApiService {
     overwrite: boolean = false,
     maxConcurrency: number = 4,
     onProgress?: (data: {
-      type: 'progress' | 'complete' | 'error'
+      type: 'progress' | 'complete' | 'error' | 'log'
       current?: number
       total?: number
+      currentSourceKey?: string   // 当前处理的源文件
+      currentDestKey?: string     // 当前处理的目标文件
       totalMoved?: number
       totalSkipped?: number
       totalErrors?: number
       message?: string
       error?: string
+      level?: 'info' | 'warn' | 'error'
     }) => void
   ): Promise<{
     success: boolean
