@@ -2,6 +2,42 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.9] - 2026-03-14
+
+### Added
+- **全局线程池** - 上传和下载任务的全局并发资源管理
+  - `src/types/threadPool.ts` - 线程池类型定义（ThreadPoolClient、TaskSlotInfo 等）
+  - `src/lib/threadPool.ts` - 核心线程池实现（GlobalThreadPoolManager 单例）
+  - 上传和下载分别管理独立的线程池
+  - 按任务列表顺序分配资源（从上到下优先）
+  - 暂停的任务自动释放资源给后续任务
+  - 配置热更新支持（修改并发设置立即生效）
+
+### Improved
+- **ChunkedUploader** - 添加 `threadPoolClient` 可选参数
+  - `start()` 时从线程池获取实际分配的并发数
+  - `pause()` 时通知线程池释放资源
+  - `abort()` 时释放线程池资源
+- **ChunkedDownloader** - 添加 `threadPoolClient` 可选参数
+  - 同样的线程池集成逻辑
+  - 优雅降级：不提供 client 时回退到原有静态并发控制
+
+### Technical
+- **资源分配算法**：
+  1. 按任务优先级（列表顺序）排序
+  2. 只给 `running` 或 `pending` 状态的任务分配资源
+  3. 每个任务最多分配 `min(requested, availableSlots)`
+  4. 资源耗尽时停止分配
+- **调试方法**（开发环境）：
+  ```js
+  // 浏览器控制台调用
+  window.threadPoolDebug()
+  // 返回: { upload: {...}, download: {...} }
+  // 包含: globalLimit, tasks, usedSlots, availableSlots
+  ```
+
+---
+
 ## [0.9.8] - 2026-03-14
 
 ### Added

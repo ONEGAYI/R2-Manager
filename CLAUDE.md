@@ -98,8 +98,20 @@ cloudflare-r2-manager/
 │   │   ├── bucket.ts                 # 桶类型
 │   │   ├── file.ts                   # 文件类型（含批量操作类型）
 │   │   ├── transfer.ts               # 传输类型（upload/download/copy/move）
-│   │   └── chunk.ts                  # 分块传输类型
-│   ├── 📁 lib/                       # 工具库 (cn, utils, isTauri, logger, tauriStorage, fileIcons)
+│   │   ├── chunk.ts                  # 分块传输类型
+│   │   └── threadPool.ts             # 全局线程池类型
+│   ├── 📁 lib/                       # 工具库
+│   │   ├── cn.ts                     # className 合并工具
+│   │   ├── utils.ts                  # 通用工具函数
+│   │   ├── isTauri.ts                # Tauri 环境检测
+│   │   ├── logger.ts                 # 日志工具
+│   │   ├── tauriStorage.ts           # Tauri 持久化存储适配器
+│   │   ├── fileIcons.ts              # 文件图标映射
+│   │   ├── transferLogger.ts         # 传输日志模块
+│   │   ├── chunkManager.ts           # 分块计算逻辑
+│   │   ├── abortRegistry.ts          # Abort 函数注册表
+│   │   ├── downloadCacheManager.ts   # 下载缓存管理（IndexedDB）
+│   │   └── threadPool.ts             # 全局线程池管理器
 │   ├── 📁 styles/                    # 全局样式
 │   ├── App.tsx                       # 主应用
 │   └── main.tsx                      # 入口文件
@@ -214,15 +226,10 @@ cloudflare-r2-manager/
 - [x] 传输中心进度反馈（实时进度条、速度显示）
 - [x] 大文件上传支持（流式转发、真实进度、超时保护）
 - [x] 暂停/恢复传输（上传和下载均已完成）
-- [x] **多线程分块传输** - Phase 1 & 2 & 3 完成
-  - [x] 分块下载（Range 请求、4/8 线程并发、Blob 合并）
-  - [x] 分块上传（S3 Multipart Upload、真取消机制）
-  - [x] 进度报告节流（200ms，减少 CPU 占用）
-  - [x] 上传暂停/恢复（中断 XHR、服务器分块查询、状态持久化）
-  - [x] 下载暂停/恢复（中断流读取器、IndexedDB 缓存、状态持久化）
+- [x] **多线程分块传输** - Phase 1 & 2 & 3 & 4 完成
   - [x] **下载断点续传**（真正的断点续传，从暂停位置继续而非重新下载）
     - [ ] bug? offset is out of boundry（多次暂停恢复后）
-  - [x] 优化分块机制（根据固定间隔而非文件大小）
+  - [x] **全局线程池**（上传/下载独立管理，按任务顺序分配资源，配置热更新）
 - [x] 响应式布局、面包屑导航布局优化
 - [ ] 动效优化
 - [ ] 键盘快捷键

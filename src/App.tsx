@@ -28,6 +28,7 @@ import type { ChunkedUploaderState, ChunkedDownloaderState, ResumeDownloadOption
 import { transferLogger } from '@/lib/transferLogger'
 import { registerAbortFn, unregisterAbortFn } from '@/lib/abortRegistry'
 import { downloadCacheManager } from '@/lib/downloadCacheManager'
+import { globalThreadPool } from '@/lib/threadPool'
 import type { UploadFile } from '@/types/file'
 import '@/styles/globals.css'
 
@@ -352,6 +353,10 @@ function App() {
             // 使用分块下载（大文件）
             transferLogger.taskStarted(taskId, 0) // 分块数由 ChunkedDownloader 内部计算
 
+            // 注册到全局线程池
+            globalThreadPool.registerTask(taskId, 'download', maxDownloadThreads)
+            const threadPoolClient = globalThreadPool.createClient(taskId, 'download')
+
             const downloader = new ChunkedDownloader({
               bucketName: selectedBucket,
               key,
@@ -360,6 +365,7 @@ function App() {
               fileName,
               maxConcurrency: maxDownloadThreads,
               chunkStep: downloadChunkStep,
+              threadPoolClient,
               onProgress: (loaded, total, speed) => {
                 const progress = total > 0 ? Math.round((loaded / total) * 100) : 0
                 updateTask(taskId, { progress, loadedBytes: loaded, speed })
@@ -387,6 +393,8 @@ function App() {
             // 下载完成，清理控制器和 abort 函数
             downloadControllers.current.delete(taskId)
             unregisterAbortFn(taskId)
+            // 释放线程池资源
+            globalThreadPool.unregisterTask(taskId, 'download')
           } else {
             // 使用单线程下载（小文件）
             transferLogger.usingSingleThreadMode(fileSize)
@@ -592,12 +600,17 @@ function App() {
           // 大文件：使用分块上传
           transferLogger.taskStarted(taskId, 0) // 分块数由 ChunkedUploader 内部计算
 
+          // 注册到全局线程池
+          globalThreadPool.registerTask(taskId, 'upload', maxUploadThreads)
+          const threadPoolClient = globalThreadPool.createClient(taskId, 'upload')
+
           const uploader = new ChunkedUploader({
             bucketName: bucket,
             key,
             file,
             maxConcurrency: maxUploadThreads,
             chunkStep: uploadChunkStep,
+            threadPoolClient,
             onProgress: (loaded, total, speed) => {
               const progress = Math.round((loaded / total) * 100)
               updateTask(taskId, { progress, loadedBytes: loaded, speed })
@@ -627,6 +640,8 @@ function App() {
           // 上传完成，清理控制器和 abort 函数
           uploadControllers.current.delete(taskId)
           unregisterAbortFn(taskId)
+          // 释放线程池资源
+          globalThreadPool.unregisterTask(taskId, 'upload')
         } else {
           // 小文件：使用普通上传
           transferLogger.usingSingleThreadMode(file.size)
@@ -784,12 +799,17 @@ function App() {
         return
       }
 
+      // 注册到全局线程池
+      globalThreadPool.registerTask(taskId, 'upload', maxUploadThreads)
+      const threadPoolClient = globalThreadPool.createClient(taskId, 'upload')
+
       const uploader = new ChunkedUploader({
         bucketName: pausedState.uploaderState.bucketName,
         key: pausedState.uploaderState.key,
         file,
         maxConcurrency: maxUploadThreads,
         chunkStep: uploadChunkStep,
+        threadPoolClient,
         onProgress: (loaded, total, speed) => {
           const progress = Math.round((loaded / total) * 100)
           updateTask(taskId, { progress, loadedBytes: loaded, speed })
@@ -822,6 +842,8 @@ function App() {
       unregisterAbortFn(taskId)
       uploadControllers.current.delete(taskId)
       removePausedUpload(taskId)
+      // 释放线程池资源
+      globalThreadPool.unregisterTask(taskId, 'upload')
 
       // 移动到历史记录
       const completedTask = getTaskById(taskId)
@@ -893,6 +915,10 @@ function App() {
     updateTask(taskId, { status: 'running' })
 
     try {
+      // 注册到全局线程池
+      globalThreadPool.registerTask(taskId, 'download', maxDownloadThreads)
+      const threadPoolClient = globalThreadPool.createClient(taskId, 'download')
+
       // 创建新的 downloader 恢复下载
       const downloader = new ChunkedDownloader({
         bucketName: pausedState.downloaderState.bucketName,
@@ -902,6 +928,7 @@ function App() {
         fileName: pausedState.downloaderState.fileName,
         maxConcurrency: maxDownloadThreads,
         chunkStep: downloadChunkStep,
+        threadPoolClient,
         onProgress: (loaded, total, speed) => {
           const progress = Math.round((loaded / total) * 100)
           updateTask(taskId, { progress, loadedBytes: loaded, speed })
@@ -950,6 +977,8 @@ function App() {
       unregisterAbortFn(taskId)
       downloadControllers.current.delete(taskId)
       removePausedDownload(taskId)
+      // 释放线程池资源
+      globalThreadPool.unregisterTask(taskId, 'download')
 
       // 移动到历史记录
       const completedTask = getTaskById(taskId)

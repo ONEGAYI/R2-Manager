@@ -10,6 +10,7 @@ import {
   MAX_DOWNLOAD_CHUNK_STEP,
   DEFAULT_DOWNLOAD_CHUNK_STEP,
 } from '@/types/chunk'
+import type { ThreadPoolClient } from '@/types/threadPool'
 import {
   calculateChunksByStep,
   createRangeHeader,
@@ -50,6 +51,8 @@ export interface ChunkedDownloaderOptions {
   chunkStep?: number
   /** 进度回调 */
   onProgress?: ProgressCallback
+  /** 线程池客户端（可选，用于全局并发控制） */
+  threadPoolClient?: ThreadPoolClient
 }
 
 /**
@@ -66,6 +69,7 @@ export class ChunkedDownloader {
   private maxConcurrency: number
   private chunkStep: number
   private onProgress?: ProgressCallback
+  private threadPoolClient?: ThreadPoolClient
 
   private chunks: ChunkInfo[] = []
   private results: Map<number, ArrayBuffer> = new Map()
@@ -97,6 +101,7 @@ export class ChunkedDownloader {
       Math.min(MAX_DOWNLOAD_CHUNK_STEP, options.chunkStep ?? DEFAULT_DOWNLOAD_CHUNK_STEP)
     )
     this.onProgress = options.onProgress
+    this.threadPoolClient = options.threadPoolClient
   }
 
   /**
@@ -116,9 +121,16 @@ export class ChunkedDownloader {
     this.partialData.clear()
     this.activeReaders.clear()
 
+    // 通知线程池任务开始运行
+    if (this.threadPoolClient) {
+      this.threadPoolClient.notifyStatusChange('running')
+    }
+
     // 使用配置的步长计算分块
     this.chunks = calculateChunksByStep(this.fileSize, this.chunkStep)
-    const concurrency = getRecommendedConcurrency(this.chunks.length, this.maxConcurrency)
+
+    // 获取实际并发数（优先使用线程池分配）
+    const concurrency = this.getEffectiveConcurrency(this.chunks.length)
 
     // 确定需要下载的分块
     let chunksToDownload = this.chunks
@@ -198,6 +210,12 @@ export class ChunkedDownloader {
    */
   abort(): void {
     this.aborted = true
+
+    // 释放线程池资源
+    if (this.threadPoolClient) {
+      this.threadPoolClient.releaseAll()
+    }
+
     // 取消所有活跃的流读取器
     for (const reader of this.activeReaders.values()) {
       reader.cancel().catch(() => {})
@@ -217,6 +235,11 @@ export class ChunkedDownloader {
     }
 
     this.paused = true
+
+    // 通知线程池任务已暂停（释放资源给其他任务）
+    if (this.threadPoolClient) {
+      this.threadPoolClient.notifyStatusChange('paused')
+    }
 
     // 调试：记录暂停时的状态
     const activeReaderIndexes = Array.from(this.activeReaders.keys())
@@ -340,6 +363,23 @@ export class ChunkedDownloader {
    */
   isAborted(): boolean {
     return this.aborted
+  }
+
+  /**
+   * 获取实际使用的并发数
+   *
+   * 优先使用线程池分配的并发数，如果未使用线程池则回退到推荐并发数
+   */
+  private getEffectiveConcurrency(chunkCount: number): number {
+    const recommendedConcurrency = getRecommendedConcurrency(chunkCount, this.maxConcurrency)
+
+    if (this.threadPoolClient) {
+      const allocated = this.threadPoolClient.getAllocatedConcurrency()
+      // 如果分配了0，表示资源不足，需要等待
+      // 但为了优雅降级，至少使用1个并发
+      return Math.max(1, Math.min(allocated, recommendedConcurrency))
+    }
+    return recommendedConcurrency
   }
 
   /**

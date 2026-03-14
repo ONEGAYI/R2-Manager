@@ -11,6 +11,7 @@ import {
   DEFAULT_UPLOAD_CHUNK_STEP,
   S3_MAX_PART_COUNT,
 } from '@/types/chunk'
+import type { ThreadPoolClient } from '@/types/threadPool'
 import { transferLogger } from '@/lib/transferLogger'
 
 const API_BASE = 'http://localhost:3001/api'
@@ -40,6 +41,8 @@ export interface ChunkedUploaderOptions {
   chunkStep?: number
   /** 进度回调 */
   onProgress?: ProgressCallback
+  /** 线程池客户端（可选，用于全局并发控制） */
+  threadPoolClient?: ThreadPoolClient
 }
 
 /**
@@ -67,6 +70,7 @@ export class ChunkedUploader {
   private maxConcurrency: number
   private onProgress?: ProgressCallback
   private chunkStep: number
+  private threadPoolClient?: ThreadPoolClient
 
   private uploadId: string | null = null
   private parts: ChunkUploadInfo[] = []
@@ -93,6 +97,7 @@ export class ChunkedUploader {
     this.file = options.file
     this.maxConcurrency = options.maxConcurrency ?? 4
     this.onProgress = options.onProgress
+    this.threadPoolClient = options.threadPoolClient
     // Clamp 分块步长到有效范围
     this.chunkStep = Math.max(
       MIN_UPLOAD_CHUNK_STEP,
@@ -112,6 +117,11 @@ export class ChunkedUploader {
     this.lastSpeedTime = Date.now()
     this.aborted = false
     this.paused = false
+
+    // 通知线程池任务开始运行
+    if (this.threadPoolClient) {
+      this.threadPoolClient.notifyStatusChange('running')
+    }
 
     const fileSize = this.file.size
 
@@ -158,7 +168,8 @@ export class ChunkedUploader {
         return
       }
 
-      const concurrency = this.getRecommendedConcurrency(pendingParts.length)
+      // 获取实际并发数（优先使用线程池分配）
+      const concurrency = this.getEffectiveConcurrency(pendingParts.length)
 
       transferLogger.usingChunkedUploadMode(fileSize, this.parts.length, concurrency)
 
@@ -197,7 +208,8 @@ export class ChunkedUploader {
 
       // 2. 计算分块
       this.parts = this.calculateParts(fileSize)
-      const concurrency = this.getRecommendedConcurrency(this.parts.length)
+      // 获取实际并发数（优先使用线程池分配）
+      const concurrency = this.getEffectiveConcurrency(this.parts.length)
 
       transferLogger.usingChunkedUploadMode(fileSize, this.parts.length, concurrency)
 
@@ -241,6 +253,11 @@ export class ChunkedUploader {
     }
 
     this.paused = true
+
+    // 通知线程池任务已暂停（释放资源给其他任务）
+    if (this.threadPoolClient) {
+      this.threadPoolClient.notifyStatusChange('paused')
+    }
 
     const completedCount = this.completedParts.length
     const totalCount = this.parts.length
@@ -325,6 +342,11 @@ export class ChunkedUploader {
   async abort(): Promise<void> {
     this.aborted = true
     transferLogger.uploadAborted(`${this.bucketName}/${this.key}`)
+
+    // 释放线程池资源
+    if (this.threadPoolClient) {
+      this.threadPoolClient.releaseAll()
+    }
 
     // 中断所有活跃的 XHR 请求
     for (const [, xhr] of this.activeXhrs) {
@@ -593,6 +615,21 @@ export class ChunkedUploader {
   private getRecommendedConcurrency(partCount: number): number {
     // 分块数较少时，不超过分块数
     return Math.min(partCount, this.maxConcurrency)
+  }
+
+  /**
+   * 获取实际使用的并发数
+   *
+   * 优先使用线程池分配的并发数，如果未使用线程池则回退到推荐并发数
+   */
+  private getEffectiveConcurrency(partCount: number): number {
+    if (this.threadPoolClient) {
+      const allocated = this.threadPoolClient.getAllocatedConcurrency()
+      // 如果分配了0，表示资源不足，需要等待
+      // 但为了优雅降级，至少使用1个并发
+      return Math.max(1, Math.min(allocated, partCount))
+    }
+    return this.getRecommendedConcurrency(partCount)
   }
 
   /**
