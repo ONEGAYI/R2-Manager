@@ -1060,44 +1060,84 @@ function App() {
   const handleMove = useCallback(async (sourceKey: string, destinationKey: string, destinationBucket?: string): Promise<boolean> => {
     if (!selectedBucket) return false
 
-    try {
-      await fileService.moveFile(selectedBucket, sourceKey, destinationKey, false, destinationBucket)
-      // 刷新源桶和目标桶（如果是跨桶操作）
-      refreshFiles(selectedBucket, currentPrefix)
-      if (destinationBucket && destinationBucket !== selectedBucket) {
-        // 跨桶移动成功，目标桶会在用户切换时刷新
+    const name = sourceKey.split('/').filter(Boolean).pop() || ''
+
+    // 创建传输任务
+    const { addBatchOperationTask, updateBatchProgress, moveToHistory } = useTransferStore.getState()
+    const taskId = addBatchOperationTask({
+      direction: 'move',
+      fileName: name,
+      bucketName: selectedBucket,
+      sourceKey,
+      destinationKey,
+      destinationBucket,
+      totalItems: 1,
+    })
+
+    // 异步执行，不阻塞对话框关闭
+    ;(async () => {
+      try {
+        await fileService.moveFile(selectedBucket, sourceKey, destinationKey, false, destinationBucket)
+        updateBatchProgress(taskId, 1, 100)
+        refreshFiles(selectedBucket, currentPrefix)
+        // 从最新状态获取任务对象
+        const task = useTransferStore.getState().tasks.find(t => t.id === taskId)
+        if (task) {
+          moveToHistory(task, 'completed')
+        }
+      } catch (error) {
+        console.error('Move failed:', error)
+        const errorMsg = (error as Error).message
+        const task = useTransferStore.getState().tasks.find(t => t.id === taskId)
+        if (task) {
+          moveToHistory(task, 'error', errorMsg)
+        }
       }
-      return true
-    } catch (error) {
-      console.error('Move failed:', error)
-      const errorMsg = (error as Error).message
-      if (errorMsg.includes('已存在')) {
-        alert('移动失败: 目标路径已存在')
-      } else {
-        alert('移动失败: ' + errorMsg)
-      }
-      return false
-    }
+    })()
+
+    return true // 立即返回，允许对话框关闭
   }, [selectedBucket, currentPrefix, refreshFiles])
 
   // 处理复制
   const handleCopy = useCallback(async (sourceKey: string, destinationKey: string, destinationBucket?: string): Promise<boolean> => {
     if (!selectedBucket) return false
 
-    try {
-      await fileService.copyFile(selectedBucket, sourceKey, destinationKey, false, destinationBucket)
-      refreshFiles(selectedBucket, currentPrefix)
-      return true
-    } catch (error) {
-      console.error('Copy failed:', error)
-      const errorMsg = (error as Error).message
-      if (errorMsg.includes('已存在')) {
-        alert('复制失败: 目标路径已存在')
-      } else {
-        alert('复制失败: ' + errorMsg)
+    const name = sourceKey.split('/').filter(Boolean).pop() || ''
+
+    // 创建传输任务
+    const { addBatchOperationTask, updateBatchProgress, moveToHistory } = useTransferStore.getState()
+    const taskId = addBatchOperationTask({
+      direction: 'copy',
+      fileName: name,
+      bucketName: selectedBucket,
+      sourceKey,
+      destinationKey,
+      destinationBucket,
+      totalItems: 1,
+    })
+
+    // 异步执行，不阻塞对话框关闭
+    ;(async () => {
+      try {
+        await fileService.copyFile(selectedBucket, sourceKey, destinationKey, false, destinationBucket)
+        updateBatchProgress(taskId, 1, 100)
+        refreshFiles(selectedBucket, currentPrefix)
+        // 从最新状态获取任务对象
+        const task = useTransferStore.getState().tasks.find(t => t.id === taskId)
+        if (task) {
+          moveToHistory(task, 'completed')
+        }
+      } catch (error) {
+        console.error('Copy failed:', error)
+        const errorMsg = (error as Error).message
+        const task = useTransferStore.getState().tasks.find(t => t.id === taskId)
+        if (task) {
+          moveToHistory(task, 'error', errorMsg)
+        }
       }
-      return false
-    }
+    })()
+
+    return true // 立即返回，允许对话框关闭
   }, [selectedBucket, currentPrefix, refreshFiles])
 
   // 处理批量移动 - 集成传输中心

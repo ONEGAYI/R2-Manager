@@ -12,6 +12,11 @@ All notable changes to this project will be documented in this file.
   - `src/App.tsx` - 批量操作调用时使用用户配置的并发数
 
 ### Improved
+- **单文件移动/复制集成传输中心** - 与批量操作保持一致的交互体验
+  - `src/App.tsx` - `handleMove()` 和 `handleCopy()` 创建传输任务记录
+  - 改为异步执行模式，对话框可立即关闭
+  - 错误信息记录到传输历史而非弹窗提示
+  - 用户可在传输中心查看操作进度和历史
 - **批量复制/移动并行优化** - 从串行处理改为并行处理
   - `server/index.js` - 新增 `runWithConcurrency()` 通用并发执行器
   - 批量复制 API 使用并发执行器，支持 `maxConcurrency` 参数
