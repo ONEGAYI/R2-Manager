@@ -717,51 +717,40 @@ export function SettingsDialog({
         {/* 固定子导航栏（仅传输标签显示） */}
         {activeTab === 'concurrency' && (
           <div className="px-6 pt-3 shrink-0">
-            <div className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground w-full grid grid-cols-4">
-              <button
-                onClick={() => setActiveSubTab('concurrency')}
-                className={cn(
-                  'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
-                  activeSubTab === 'concurrency'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'hover:bg-background/50'
-                )}
-              >
-                并发设置
-              </button>
-              <button
-                onClick={() => setActiveSubTab('chunk')}
-                className={cn(
-                  'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
-                  activeSubTab === 'chunk'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'hover:bg-background/50'
-                )}
-              >
-                分块设置
-              </button>
-              <button
-                onClick={() => setActiveSubTab('download')}
-                className={cn(
-                  'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
-                  activeSubTab === 'download'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'hover:bg-background/50'
-                )}
-              >
-                下载路径
-              </button>
-              <button
-                onClick={() => setActiveSubTab('retry')}
-                className={cn(
-                  'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
-                  activeSubTab === 'retry'
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'hover:bg-background/50'
-                )}
-              >
-                错误重试
-              </button>
+            <div className="inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground w-full grid grid-cols-4 relative">
+              {[
+                { id: 'concurrency' as SubTab, label: '并发设置' },
+                { id: 'chunk' as SubTab, label: '分块设置' },
+                { id: 'download' as SubTab, label: '下载路径' },
+                { id: 'retry' as SubTab, label: '错误重试' },
+              ].map((subTab) => (
+                <button
+                  key={subTab.id}
+                  onClick={() => setActiveSubTab(subTab.id)}
+                  className={cn(
+                    'relative inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-colors z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50',
+                    activeSubTab === subTab.id
+                      ? 'text-foreground'
+                      : 'hover:bg-background/50'
+                  )}
+                >
+                  {subTab.label}
+                </button>
+              ))}
+              {/* 滑动指示框 */}
+              <motion.div
+                layoutId="settingsSubTabIndicator"
+                className="absolute top-1 bottom-1 bg-background rounded-sm shadow-sm"
+                style={{
+                  left: `calc(0.25rem + ${['concurrency', 'chunk', 'download', 'retry'].indexOf(activeSubTab) * 25}%)`,
+                  width: 'calc(25% - 0.25rem)',
+                }}
+                transition={{
+                  type: 'spring',
+                  stiffness: 400,
+                  damping: 30,
+                }}
+              />
             </div>
           </div>
         )}

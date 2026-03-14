@@ -18,13 +18,34 @@ All notable changes to this project will be documented in this file.
   - 批量移动 API 使用并发执行器，支持 `maxConcurrency` 参数
   - 使用共享 stats 对象实现原子统计更新
   - 多个文件夹可同时并行处理，显著提升批量操作速度
+- **文件夹内部并行处理** - 文件夹内子文件也支持并行复制/移动
+  - `server/index.js` - 新增 `Semaphore` 信号量类控制总并发数
+  - 使用共享信号量确保外层并发 × 内层并发不超过配置上限
+  - 单个大文件夹（如 100 个文件）复制速度提升约 3-4 倍
+- **传输中心标签页滑动动效** - framer-motion 弹性滑动指示框
+  - `src/components/transfer/TransferTabs.tsx` - 添加 layoutId 滑动指示框
+  - 使用 Spring 弹性动画（stiffness: 400, damping: 30）
+- **设置对话框子导航滑动动效** - 与主导航栏风格统一
+  - `src/components/config/SettingsDialog.tsx` - 并发标签页二级导航添加滑动指示框
+- **批量操作历史清空功能** - 支持清空批量复制/移动的完成记录
+  - `src/components/transfer/TransferPage.tsx` - 批量完成标签页显示清空按钮
+
+### Fixed
+- **framer-motion ref warning 修复** - HistoryItem 组件使用 forwardRef
+  - `src/components/transfer/HistoryItem.tsx` - 修复 "Function components cannot be given refs" 警告
 
 ### Technical
 - **并发执行器设计**：
   - Worker 池模式：启动 N 个 worker 协同消费任务队列
   - 进度回调：每完成一项立即报告进度
   - 错误隔离：单个任务失败不影响其他任务
-- **性能提升**：选中 10 个文件夹复制时，并发数 4 可提升约 3-4 倍速度
+- **信号量设计（Semaphore）**：
+  - 共享信号量：顶层 items 和文件夹内部共享同一个信号量
+  - 总并发数控制：避免资源耗尽，保证系统稳定性
+  - 无需新增配置：复用 `maxBatchOperationThreads` 配置
+- **性能提升**：
+  - 选中 10 个文件夹复制时，并发数 4 可提升约 3-4 倍速度
+  - 单个包含 100 文件的文件夹，复制速度提升约 3-4 倍
 
 ---
 

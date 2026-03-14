@@ -962,6 +962,42 @@ function reportBatchProgress(res, isSSERequest, opts) {
   })
 }
 
+// 简单信号量实现（控制并发数）
+class Semaphore {
+  constructor(max) {
+    this.max = max
+    this.current = 0
+    this.queue = []
+  }
+
+  async acquire() {
+    if (this.current < this.max) {
+      this.current++
+      return
+    }
+    await new Promise(resolve => this.queue.push(resolve))
+  }
+
+  release() {
+    this.current--
+    if (this.queue.length > 0) {
+      this.current++
+      const next = this.queue.shift()
+      next()
+    }
+  }
+
+  // 便捷方法：在信号量控制下执行函数
+  async run(fn) {
+    await this.acquire()
+    try {
+      return await fn()
+    } finally {
+      this.release()
+    }
+  }
+}
+
 // 并发执行器（带进度回调）
 async function runWithConcurrency(items, fn, options) {
   const { concurrency = 4, onProgress } = options
@@ -1025,6 +1061,9 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
 
   // 共享统计对象（原子更新）
   const stats = { totalCopied: 0, totalSkipped: 0, totalErrors: 0 }
+
+  // 共享信号量（控制文件夹内部并发）
+  const semaphore = new Semaphore(maxConcurrency)
 
   // 收集所有顶层单文件项，批量检测冲突
   const topLevelSingleFiles = items.filter(item => !item.isFolder && !item.sourceKey.endsWith('/'))
@@ -1117,29 +1156,48 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
           conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
         }
 
-        // 逐个复制子对象，跳过冲突的
+        // 并行复制子对象（使用信号量控制并发）
         let copiedCount = 0
         let skippedCount = 0
         const skippedFiles = []
 
-        for (const obj of allObjects) {
+        // 先过滤掉冲突文件
+        const subObjectsToCopy = allObjects.filter(obj => {
           const relativePath = obj.Key.substring(sourceKey.length)
           const targetKey = `${destinationKey}${relativePath}`
-
-          // 使用本地冲突检测结果
           if (!overwrite && conflictKeys.has(targetKey)) {
             skippedCount++
             skippedFiles.push(targetKey)
-            continue  // 跳过冲突文件，继续处理其他
+            return false
           }
+          return true
+        })
 
-          const copyCommand = new CopyObjectCommand({
-            Bucket: targetBucket,
-            CopySource: `${bucketName}/${encodeURIComponent(obj.Key)}`,
-            Key: targetKey,
-          })
-          await r2Client.send(copyCommand)
-          copiedCount++
+        // 并行复制（信号量控制总并发数）
+        const copyResults = await Promise.all(
+          subObjectsToCopy.map(obj =>
+            semaphore.run(async () => {
+              const relativePath = obj.Key.substring(sourceKey.length)
+              const targetKey = `${destinationKey}${relativePath}`
+
+              const copyCommand = new CopyObjectCommand({
+                Bucket: targetBucket,
+                CopySource: `${bucketName}/${encodeURIComponent(obj.Key)}`,
+                Key: targetKey,
+              })
+              await r2Client.send(copyCommand)
+              return { success: true }
+            }).catch(error => ({ success: false, error: error.message, key: obj.Key }))
+          )
+        )
+
+        // 统计结果
+        for (const result of copyResults) {
+          if (result.success) {
+            copiedCount++
+          } else {
+            stats.totalErrors++
+          }
         }
 
         // 更新统计
@@ -1268,6 +1326,9 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
   // 共享统计对象（原子更新）
   const stats = { totalMoved: 0, totalSkipped: 0, totalErrors: 0 }
 
+  // 共享信号量（控制文件夹内部并发）
+  const semaphore = new Semaphore(maxConcurrency)
+
   // 收集所有顶层单文件项，批量检测冲突
   const topLevelSingleFiles = items.filter(item => !item.isFolder && !item.sourceKey.endsWith('/'))
     .map(item => ({
@@ -1390,32 +1451,47 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
           conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
         }
 
-        // 逐个复制子对象，跳过冲突的
+        // 并行复制子对象（使用信号量控制并发）
         let movedCount = 0
         let skippedCount = 0
-        const copiedKeys = []
         const skippedFiles = []
 
-        for (const obj of allObjects) {
+        // 先过滤掉冲突文件
+        const subObjectsToCopy = allObjects.filter(obj => {
           const relativePath = obj.Key.substring(sourceKey.length)
           const targetObjKey = `${destinationKey}${relativePath}`
-
-          // 使用本地冲突检测结果
           if (!overwrite && conflictKeys.has(targetObjKey)) {
             skippedCount++
             skippedFiles.push(targetObjKey)
-            continue  // 跳过冲突文件，继续处理其他
+            return false
           }
+          return true
+        })
 
-          const copyCommand = new CopyObjectCommand({
-            Bucket: targetBucket,
-            CopySource: `${bucketName}/${encodeURIComponent(obj.Key)}`,
-            Key: targetObjKey,
-          })
-          await r2Client.send(copyCommand)
-          copiedKeys.push(obj.Key)
-          movedCount++
-        }
+        // 并行复制（信号量控制总并发数）
+        const copyResults = await Promise.all(
+          subObjectsToCopy.map(obj =>
+            semaphore.run(async () => {
+              const relativePath = obj.Key.substring(sourceKey.length)
+              const targetObjKey = `${destinationKey}${relativePath}`
+
+              const copyCommand = new CopyObjectCommand({
+                Bucket: targetBucket,
+                CopySource: `${bucketName}/${encodeURIComponent(obj.Key)}`,
+                Key: targetObjKey,
+              })
+              await r2Client.send(copyCommand)
+              return { success: true, sourceKey: obj.Key }
+            }).catch(error => ({ success: false, error: error.message }))
+          )
+        )
+
+        // 收集成功复制的 keys
+        const copiedKeys = copyResults
+          .filter(r => r.success)
+          .map(r => r.sourceKey)
+
+        movedCount = copiedKeys.length
 
         // 批量删除已成功复制的源对象
         if (copiedKeys.length > 0) {

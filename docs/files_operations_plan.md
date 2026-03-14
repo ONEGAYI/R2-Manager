@@ -647,7 +647,7 @@ function selectConflictStrategy(itemCount: number): ConflictStrategy {
 - [x] 优化速度（并行请求）✅ v0.9.13
   - [x] 多文件夹并行 - 使用 `runWithConcurrency()` 并发执行器
   - [x] 用户可配置并发数（1-8，默认 4）- 设置对话框 → 并发标签页
-  - [ ] 文件夹内部并行（待实现）
+  - [x] 文件夹内部并行 - 使用 `Semaphore` 信号量控制总并发数
 
 ---
 

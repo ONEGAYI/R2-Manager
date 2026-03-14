@@ -73,16 +73,14 @@ export function TransferPage({ onPauseUpload, onResumeUpload, onPauseDownload, o
   }
 
   const handleClearHistory = () => {
-    let direction: TransferDirection | undefined
     if (activeTab === 'uploadCompleted') {
-      direction = 'upload'
+      clearHistory('upload')
     } else if (activeTab === 'downloadCompleted') {
-      direction = 'download'
-    }
-    // 批量操作历史暂不支持清空（因为 copy/move 不在 TransferDirection 类型中）
-
-    if (direction) {
-      clearHistory(direction)
+      clearHistory('download')
+    } else if (activeTab === 'batchCompleted') {
+      // 批量操作包含 copy 和 move 两种方向
+      clearHistory('copy')
+      clearHistory('move')
     }
   }
 
@@ -133,7 +131,7 @@ export function TransferPage({ onPauseUpload, onResumeUpload, onPauseDownload, o
       {/* 页面标题 */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">传输中心</h1>
-        {isHistoryTab && activeTab !== 'batchCompleted' && (
+        {isHistoryTab && (
           <Button
             variant="outline"
             size="sm"

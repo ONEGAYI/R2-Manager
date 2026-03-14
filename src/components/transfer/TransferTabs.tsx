@@ -1,4 +1,5 @@
 import { Upload, Download, CheckCircle, Copy } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { cn } from '@/lib/cn'
 import type { TransferTab } from '@/types/transfer'
 
@@ -69,25 +70,29 @@ export function TransferTabs({
     },
   ]
 
+  const activeIndex = tabs.findIndex((t) => t.id === activeTab)
+  const tabCount = tabs.length
+  const tabWidthPercent = 100 / tabCount
+
   return (
-    <div className="flex gap-1 p-1 bg-muted/30 rounded-lg">
+    <div className="grid grid-cols-6 p-1 bg-muted/30 rounded-lg relative">
       {tabs.map((tab) => (
         <button
           key={tab.id}
           onClick={() => onTabChange(tab.id)}
           className={cn(
-            'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all',
+            'relative flex items-center justify-center gap-1.5 px-2 py-2 rounded-md text-sm font-medium transition-colors z-10',
             activeTab === tab.id
-              ? 'bg-background text-foreground shadow-sm'
+              ? 'text-foreground'
               : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
           )}
         >
           {tab.icon}
-          <span>{tab.label}</span>
+          <span className="hidden sm:inline">{tab.label}</span>
           {tab.count > 0 && (
             <span
               className={cn(
-                'min-w-[20px] h-5 flex items-center justify-center rounded-full text-xs font-medium px-1.5',
+                'min-w-[18px] h-[18px] flex items-center justify-center rounded-full text-[10px] font-medium px-1',
                 activeTab === tab.id
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted text-muted-foreground'
@@ -98,6 +103,20 @@ export function TransferTabs({
           )}
         </button>
       ))}
+      {/* 滑动指示框 */}
+      <motion.div
+        layoutId="transferTabIndicator"
+        className="absolute top-1 bottom-1 bg-background rounded-md shadow-sm"
+        style={{
+          left: `calc(0.25rem + ${activeIndex * tabWidthPercent}%)`,
+          width: `calc(${tabWidthPercent}% - 0.25rem)`,
+        }}
+        transition={{
+          type: 'spring',
+          stiffness: 400,
+          damping: 30,
+        }}
+      />
     </div>
   )
 }
