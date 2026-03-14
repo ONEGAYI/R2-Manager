@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { FolderInput, Copy, ChevronLeft, Home, Database, ChevronRight, RefreshCw, PanelRightClose, PanelRight } from 'lucide-react'
+import { FolderInput, Copy, ChevronLeft, Home, Database, ChevronRight, RefreshCw, PanelRightClose, PanelRight, AlertCircle } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/cn'
 import { FileIcon } from '@/components/common/FileIcon'
+import type { ConflictStrategy } from '@/types/file'
 
 interface MoveCopyDialogProps {
   open: boolean
@@ -33,7 +34,7 @@ interface MoveCopyDialogProps {
   sourceBucket: string
   buckets: string[]
   folders: string[] // 当前路径下的文件夹列表
-  onConfirm: (sourceKey: string, destinationKey: string, destinationBucket?: string) => Promise<boolean>
+  onConfirm: (sourceKey: string, destinationKey: string, destinationBucket?: string, conflictStrategy?: ConflictStrategy) => Promise<boolean>
   onLoadFolders?: (bucket: string, prefix: string) => Promise<void>
   // 批量模式
   batchMode?: boolean
@@ -46,7 +47,7 @@ interface MoveCopyDialogProps {
     sourceKey: string
     destinationKey: string
     isFolder: boolean
-  }>, destinationBucket?: string) => Promise<boolean>
+  }>, destinationBucket?: string, conflictStrategy?: ConflictStrategy) => Promise<boolean>
 }
 
 /**
@@ -77,6 +78,7 @@ export function MoveCopyDialog({
 }: MoveCopyDialogProps) {
   const [destinationPath, setDestinationPath] = useState('')
   const [destinationBucket, setDestinationBucket] = useState('')
+  const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>('skip')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [isLoadingFolders, setIsLoadingFolders] = useState(false)
@@ -86,12 +88,13 @@ export function MoveCopyDialog({
 
   // 当对话框打开时，设置初始值
   useEffect(() => {
-    if (open && item) {
+    if (open) {
       setDestinationPath(currentPrefix)
       setDestinationBucket(sourceBucket)
+      setConflictStrategy('skip')
       setError('')
     }
-  }, [open, item, currentPrefix, sourceBucket])
+  }, [open, currentPrefix, sourceBucket])
 
   // 当对话框打开或目标桶/路径改变时，重新加载文件夹（带防抖）
   useEffect(() => {
@@ -188,7 +191,7 @@ export function MoveCopyDialog({
         }))
 
         const destBucket = destinationBucket !== sourceBucket ? destinationBucket : undefined
-        const success = await onBatchConfirm(items, destBucket)
+        const success = await onBatchConfirm(items, destBucket, conflictStrategy)
         if (success) {
           onOpenChange(false)
         }
@@ -208,7 +211,7 @@ export function MoveCopyDialog({
 
     try {
       const destBucket = destinationBucket !== sourceBucket ? destinationBucket : undefined
-      const success = await onConfirm(item.key, destinationKey, destBucket)
+      const success = await onConfirm(item.key, destinationKey, destBucket, conflictStrategy)
       if (success) {
         onOpenChange(false)
       }
@@ -451,6 +454,43 @@ export function MoveCopyDialog({
                 className={cn(error || isInvalidMove ? 'border-destructive' : '')}
                 disabled={isLoading}
               />
+            </div>
+
+            {/* 冲突策略选择 */}
+            <div className="space-y-2">
+              <label className="text-sm text-muted-foreground flex items-center gap-1">
+                <AlertCircle className="h-3 w-3" />
+                冲突处理策略
+              </label>
+              <Select
+                value={conflictStrategy}
+                onValueChange={(value) => setConflictStrategy(value as ConflictStrategy)}
+                disabled={isLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="skip">
+                    <div className="flex flex-col items-start">
+                      <span>跳过冲突</span>
+                      <span className="text-xs text-muted-foreground">保留目标文件，跳过同名文件</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="overwrite">
+                    <div className="flex flex-col items-start">
+                      <span>覆盖</span>
+                      <span className="text-xs text-muted-foreground">替换目标文件</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="rename">
+                    <div className="flex flex-col items-start">
+                      <span>保留两者</span>
+                      <span className="text-xs text-muted-foreground">自动重命名新文件 (如 file (1).txt)</span>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* 错误提示 */}

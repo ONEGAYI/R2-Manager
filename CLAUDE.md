@@ -60,7 +60,7 @@ cloudflare-r2-manager/
 │   │       ├── 📁 files/             # 文件类型图标 (~58 个 SVG)
 │   │       └── 📁 folders/           # 文件夹图标 (~32 个 SVG)
 │   ├── 📁 components/
-│   │   ├── 📁 ui/                    # shadcn/ui 基础组件 (button, dialog, slider, toast...)
+│   │   ├── 📁 ui/                    # shadcn/ui 基础组件 (button, checkbox, dialog, slider, toast...)
 │   │   ├── 📁 layout/                # 布局组件 (Sidebar, Header, MainLayout)
 │   │   ├── 📁 config/                # 配置组件 (ConfigPage, SettingsDialog)
 │   │   ├── 📁 bucket/                # 桶操作组件 (CreateBucket, DeleteBucketDialog)
@@ -80,6 +80,7 @@ cloudflare-r2-manager/
 │   │   │   ├── HistoryList.tsx       # 历史记录列表
 │   │   │   ├── HistoryItem.tsx       # 历史记录项
 │   │   │   ├── ProgressBubble.tsx    # 进度气泡组件（批量操作进度反馈）
+│   │   │   ├── OperationResultDetails.tsx  # 批量操作结果详情组件
 │   │   │   └── CircularProgress.tsx  # 环形进度条组件
 │   │   └── 📁 common/                # 通用组件 (Loading, Empty, ThemeProvider, ThemeToggle, FileIcon)
 │   ├── 📁 hooks/                     # 自定义 Hooks (useConfig, useBuckets, useFiles, useUpload)
@@ -187,6 +188,11 @@ cloudflare-r2-manager/
 - **批量删除**: 支持递归删除文件夹内容
 - **批量下载**: 获取所有选中项的预签名 URL 并触发下载
 - **批量移动/复制**: 集成到传输中心，支持实时进度反馈
+- **冲突处理策略**:
+  - 跳过冲突 - 保留目标文件，不覆盖
+  - 覆盖 - 直接覆盖目标文件
+  - 保留两者 - 自动重命名（file.txt → file (1).txt）
+  - 应用到所有 - 批量操作时可一键应用相同策略
 
 ### 文件操作菜单
 

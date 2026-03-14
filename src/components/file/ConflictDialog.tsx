@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import {
   Dialog,
@@ -8,6 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { FileIcon } from '@/components/common/FileIcon'
 
 export interface ConflictItem {
@@ -28,7 +30,7 @@ interface ConflictDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   conflicts: ConflictItem[]
-  onConfirm: (resolution: 'overwrite' | 'skip' | 'cancel') => void
+  onConfirm: (resolution: 'overwrite' | 'skip' | 'rename', applyToAll: boolean) => void
   mode: 'copy' | 'move'
 }
 
@@ -43,6 +45,24 @@ function formatSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
+/**
+ * 格式化日期
+ */
+function formatDate(dateStr: string): string {
+  try {
+    const date = new Date(dateStr)
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return '-'
+  }
+}
+
 export function ConflictDialog({
   open,
   onOpenChange,
@@ -50,17 +70,29 @@ export function ConflictDialog({
   onConfirm,
   mode,
 }: ConflictDialogProps) {
-  const handleConfirm = (resolution: 'overwrite' | 'skip' | 'cancel') => {
+  const [applyToAll, setApplyToAll] = useState(false)
+
+  const handleConfirm = (resolution: 'overwrite' | 'skip' | 'rename' | 'cancel') => {
     if (resolution === 'cancel') {
       onOpenChange(false)
       return
     }
-    onConfirm(resolution)
+    onConfirm(resolution, applyToAll)
     onOpenChange(false)
+    // 重置状态
+    setApplyToAll(false)
+  }
+
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      // 关闭时重置状态
+      setApplyToAll(false)
+    }
+    onOpenChange(newOpen)
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-[600px] max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-amber-500">
@@ -97,20 +129,30 @@ export function ConflictDialog({
 
                 {/* 详细信息 */}
                 <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground pl-6">
-                  <div>
-                    <span className="text-muted-foreground">源: </span>
+                  <div className="space-y-0.5">
+                    <div className="font-medium text-foreground">源文件</div>
                     {conflict.sourceInfo ? (
-                      <span>{formatSize(conflict.sourceInfo.size)}</span>
+                      <>
+                        <div>大小: {formatSize(conflict.sourceInfo.size)}</div>
+                        <div className="text-[10px] opacity-70">
+                          {formatDate(conflict.sourceInfo.lastModified)}
+                        </div>
+                      </>
                     ) : (
-                      <span>-</span>
+                      <div>-</div>
                     )}
                   </div>
-                  <div>
-                    <span className="text-muted-foreground">目标: </span>
+                  <div className="space-y-0.5">
+                    <div className="font-medium text-foreground">目标文件</div>
                     {conflict.targetInfo ? (
-                      <span>{formatSize(conflict.targetInfo.size)}</span>
+                      <>
+                        <div>大小: {formatSize(conflict.targetInfo.size)}</div>
+                        <div className="text-[10px] opacity-70">
+                          {formatDate(conflict.targetInfo.lastModified)}
+                        </div>
+                      </>
                     ) : (
-                      <span>-</span>
+                      <div>-</div>
                     )}
                   </div>
                 </div>
@@ -124,6 +166,23 @@ export function ConflictDialog({
           </div>
         </div>
 
+        {/* 应用到所有复选框 */}
+        {conflicts.length > 1 && (
+          <div className="flex items-center gap-2 py-2 border-t">
+            <Checkbox
+              id="apply-to-all"
+              checked={applyToAll}
+              onCheckedChange={(checked: boolean | 'indeterminate') => setApplyToAll(checked === true)}
+            />
+            <label
+              htmlFor="apply-to-all"
+              className="text-sm text-muted-foreground cursor-pointer select-none"
+            >
+              对所有冲突执行此操作
+            </label>
+          </div>
+        )}
+
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button
             variant="outline"
@@ -132,19 +191,27 @@ export function ConflictDialog({
           >
             取消操作
           </Button>
-          <div className="flex gap-2 w-full sm:w-auto">
+          <div className="flex gap-2 w-full sm:w-auto flex-wrap">
             <Button
               variant="outline"
               onClick={() => handleConfirm('skip')}
-              className="flex-1 sm:flex-none"
+              className="flex-1 sm:flex-none min-w-[80px]"
             >
               跳过冲突
             </Button>
             <Button
-              onClick={() => handleConfirm('overwrite')}
-              className="flex-1 sm:flex-none"
+              variant="secondary"
+              onClick={() => handleConfirm('rename')}
+              className="flex-1 sm:flex-none min-w-[100px]"
             >
-              覆盖所有
+              保留两者
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => handleConfirm('overwrite')}
+              className="flex-1 sm:flex-none min-w-[80px]"
+            >
+              覆盖
             </Button>
           </div>
         </DialogFooter>

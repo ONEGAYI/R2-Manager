@@ -199,6 +199,99 @@ async function detectConflictsWithListObjects(bucket, targetBucket, items) {
   return conflicts
 }
 
+/**
+ * 根据已存在的文件名集合，找到第一个可用的名称
+ * file.txt -> file (1).txt -> file (2).txt
+ * @param {string} originalKey - 原始 key
+ * @param {Set<string>} existingKeys - 已存在的 key 集合
+ * @param {boolean} isFolder - 是否是文件夹
+ * @returns {string} 可用的新 key
+ */
+function findAvailableName(originalKey, existingKeys, isFolder) {
+  for (let i = 1; i <= 100; i++) {
+    let newKey
+
+    if (isFolder) {
+      const folderName = originalKey.replace(/\/$/, '')
+      newKey = `${folderName} (${i})/`
+    } else {
+      const lastSlash = originalKey.lastIndexOf('/')
+      const dir = lastSlash >= 0 ? originalKey.substring(0, lastSlash + 1) : ''
+      const fileName = lastSlash >= 0 ? originalKey.substring(lastSlash + 1) : originalKey
+
+      const lastDot = fileName.lastIndexOf('.')
+      if (lastDot > 0) {
+        const name = fileName.substring(0, lastDot)
+        const ext = fileName.substring(lastDot)
+        newKey = `${dir}${name} (${i})${ext}`
+      } else {
+        newKey = `${dir}${fileName} (${i})`
+      }
+    }
+
+    if (!existingKeys.has(newKey)) {
+      return newKey
+    }
+  }
+
+  throw new Error('无法生成唯一文件名')
+}
+
+/**
+ * 批量生成唯一文件名（使用 ListObjects 优化）
+ * 预先获取目录下所有相关文件，本地计算可用名称
+ *
+ * @param {string} bucket - 目标桶
+ * @param {string} targetBucket - 目标桶（可能跨桶）
+ * @param {Array<{originalKey: string, isFolder: boolean}>} items - 需要重命名的项列表
+ * @returns {Promise<Map<string, string>>} originalKey -> newKey 映射表
+ */
+async function generateUniqueNamesBatch(bucket, targetBucket, items) {
+  const results = new Map()
+  const actualTargetBucket = targetBucket || bucket
+
+  // 按目录分组，收集所有需要检查的前缀
+  const prefixGroups = new Map()
+  for (const item of items) {
+    const lastSlash = item.originalKey.lastIndexOf('/')
+    const dir = lastSlash >= 0 ? item.originalKey.substring(0, lastSlash + 1) : ''
+    if (!prefixGroups.has(dir)) {
+      prefixGroups.set(dir, [])
+    }
+    prefixGroups.get(dir).push(item)
+  }
+
+  // 批量获取每个目录的现有文件
+  for (const [dir, dirItems] of prefixGroups) {
+    // 使用 ListObjects 获取目录下所有文件
+    const existingKeys = new Set()
+    let continuationToken = undefined
+
+    do {
+      const listCommand = new ListObjectsV2Command({
+        Bucket: actualTargetBucket,
+        Prefix: dir,
+        ContinuationToken: continuationToken,
+        MaxKeys: 1000,
+      })
+      const response = await r2Client.send(listCommand)
+      if (response.Contents) {
+        response.Contents.forEach(obj => existingKeys.add(obj.Key))
+      }
+      continuationToken = response.NextContinuationToken
+    } while (continuationToken)
+
+    // 为每个冲突项生成唯一名称
+    for (const item of dirItems) {
+      const newKey = findAvailableName(item.originalKey, existingKeys, item.isFolder)
+      results.set(item.originalKey, newKey)
+      existingKeys.add(newKey)  // 防止后续项重复
+    }
+  }
+
+  return results
+}
+
 // API: 列出对象
 app.get('/api/buckets/:bucketName/objects', async (req, res) => {
   if (!r2Client) {
@@ -898,6 +991,86 @@ app.post('/api/buckets/:bucketName/objects/:key(*)/move', async (req, res) => {
   }
 })
 
+// API: 检测批量操作冲突
+app.post('/api/buckets/:bucketName/objects/detect-conflicts', async (req, res) => {
+  if (!r2Client) {
+    return res.status(400).json({ error: '请先配置凭证' })
+  }
+
+  const { bucketName } = req.params
+  const { items, destinationBucket } = req.body
+
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: '请提供要检测的对象列表' })
+  }
+
+  try {
+    const targetBucket = destinationBucket || bucketName
+
+    // 构建检测项列表
+    const checkItems = items.map(item => ({
+      sourceKey: item.sourceKey,
+      targetKey: item.destinationKey,
+    }))
+
+    // 批量检测冲突
+    const conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, checkItems)
+
+    // 获取冲突项的详细信息
+    const conflicts = []
+    for (const item of items) {
+      if (conflictKeys.has(item.destinationKey)) {
+        // 获取源文件信息
+        let sourceInfo = null
+        try {
+          const headSource = await r2Client.send(new HeadObjectCommand({
+            Bucket: bucketName,
+            Key: item.sourceKey,
+          }))
+          sourceInfo = {
+            size: headSource.ContentLength,
+            lastModified: headSource.LastModified,
+          }
+        } catch (e) {
+          // 源文件信息获取失败，忽略
+        }
+
+        // 获取目标文件信息
+        let targetInfo = null
+        try {
+          const headTarget = await r2Client.send(new HeadObjectCommand({
+            Bucket: targetBucket,
+            Key: item.destinationKey,
+          }))
+          targetInfo = {
+            size: headTarget.ContentLength,
+            lastModified: headTarget.LastModified,
+          }
+        } catch (e) {
+          // 目标文件信息获取失败，忽略
+        }
+
+        conflicts.push({
+          sourceKey: item.sourceKey,
+          targetKey: item.destinationKey,
+          isFolder: item.isFolder,
+          sourceInfo,
+          targetInfo,
+        })
+      }
+    }
+
+    res.json({
+      success: true,
+      conflicts,
+      totalConflicts: conflicts.length,
+    })
+  } catch (error) {
+    console.error('检测冲突失败:', error)
+    res.status(500).json({ error: error.message })
+  }
+})
+
 // API: 批量获取下载 URL
 app.post('/api/buckets/:bucketName/objects/batch-urls', async (req, res) => {
   if (!r2Client) {
@@ -947,8 +1120,10 @@ function sendSSELog(res, isSSERequest, message, level = 'info') {
 // 批量操作进度报告（统一封装）
 function reportBatchProgress(res, isSSERequest, opts) {
   if (!isSSERequest) return
-  const { current, total, sourceKey, destKey, stats } = opts
+  const { current, total, sourceKey, destKey, stats, itemResult } = opts
   const { totalCopied, totalMoved, totalSkipped, totalErrors } = stats
+
+  // 发送进度事件
   sendSSEProgress(res, {
     type: 'progress',
     current,
@@ -960,6 +1135,19 @@ function reportBatchProgress(res, isSSERequest, opts) {
     totalSkipped: totalSkipped || 0,
     totalErrors: totalErrors || 0,
   })
+
+  // 发送单项完成事件（用于前端实时更新子项状态）
+  if (itemResult) {
+    sendSSEProgress(res, {
+      type: 'itemComplete',
+      sourceKey: itemResult.sourceKey,
+      destinationKey: itemResult.destinationKey,
+      status: itemResult.status, // 'success' | 'skipped' | 'error' | 'renamed'
+      error: itemResult.error,
+      skipReason: itemResult.skipReason,
+      renamedTo: itemResult.renamedTo,
+    })
+  }
 }
 
 // 简单信号量实现（控制并发数）
@@ -1040,7 +1228,10 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
   }
 
   const { bucketName } = req.params
-  const { items, destinationBucket, overwrite = false, maxConcurrency = 4 } = req.body
+  const { items, destinationBucket, conflictStrategy = 'skip', maxConcurrency = 4 } = req.body
+
+  // 兼容旧的 overwrite 参数
+  const overwrite = conflictStrategy === 'overwrite'
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: '请提供要复制的对象列表' })
@@ -1060,7 +1251,7 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
   const totalItems = items.length
 
   // 共享统计对象（原子更新）
-  const stats = { totalCopied: 0, totalSkipped: 0, totalErrors: 0 }
+  const stats = { totalCopied: 0, totalSkipped: 0, totalErrors: 0, totalRenamed: 0 }
 
   // 共享信号量（控制文件夹内部并发）
   const semaphore = new Semaphore(maxConcurrency)
@@ -1073,10 +1264,27 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
     }))
 
   let topLevelConflicts = new Set()
-  if (!overwrite && topLevelSingleFiles.length > 0) {
+  let topLevelRenameMap = new Map()  // 冲突项的重命名映射
+
+  if (conflictStrategy !== 'overwrite' && topLevelSingleFiles.length > 0) {
     sendSSELog(res, isSSERequest, `[BatchCopy] 开始顶层单文件冲突检测: ${topLevelSingleFiles.length} 个文件`)
     topLevelConflicts = await detectConflictsWithListObjects(bucketName, targetBucket, topLevelSingleFiles)
     sendSSELog(res, isSSERequest, `[BatchCopy] 顶层单文件冲突检测完成: ${topLevelConflicts.size} 个冲突`)
+
+    // 如果是 rename 策略，批量生成重命名映射
+    if (conflictStrategy === 'rename' && topLevelConflicts.size > 0) {
+      const conflictItems = items
+        .filter(item => !item.isFolder && !item.sourceKey.endsWith('/'))
+        .filter(item => topLevelConflicts.has(item.destinationKey))
+        .map(item => ({
+          originalKey: item.destinationKey,
+          isFolder: false,
+        }))
+
+      sendSSELog(res, isSSERequest, `[BatchCopy] 为 ${conflictItems.length} 个冲突项生成重命名映射`)
+      topLevelRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, conflictItems)
+      sendSSELog(res, isSSERequest, `[BatchCopy] 重命名映射生成完成`)
+    }
   }
 
   // 处理单个 item 的复制逻辑
@@ -1108,34 +1316,61 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
 
         if (allObjects.length === 0) {
           // 空文件夹
-          if (!overwrite) {
+          let targetFolderKey = destinationKey
+          let needsRename = false
+
+          if (conflictStrategy !== 'overwrite') {
             try {
               const headCommand = new HeadObjectCommand({
                 Bucket: targetBucket,
                 Key: destinationKey,
               })
               await r2Client.send(headCommand)
-              stats.totalSkipped++
-              return {
-                sourceKey,
-                destinationKey,
-                status: 'skipped',
-                skipReason: '目标已存在',
+
+              // 目标已存在
+              if (conflictStrategy === 'rename') {
+                // 生成新名称
+                const renameMap = await generateUniqueNamesBatch(bucketName, targetBucket, [{
+                  originalKey: destinationKey,
+                  isFolder: true,
+                }])
+                targetFolderKey = renameMap.get(destinationKey) || destinationKey
+                needsRename = true
+              } else {
+                // skip 模式
+                stats.totalSkipped++
+                return {
+                  sourceKey,
+                  destinationKey,
+                  status: 'skipped',
+                  skipReason: '目标已存在',
+                }
               }
             } catch (headError) {
               if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
                 throw headError
               }
+              // 目标不存在，继续复制
             }
           }
 
           const copyCommand = new CopyObjectCommand({
             Bucket: targetBucket,
             CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
-            Key: destinationKey,
+            Key: targetFolderKey,
           })
           await r2Client.send(copyCommand)
           stats.totalCopied++
+          if (needsRename) {
+            stats.totalRenamed++
+            return {
+              sourceKey,
+              destinationKey,
+              status: 'renamed',
+              renamedTo: targetFolderKey,
+              copied: 1,
+            }
+          }
           return {
             sourceKey,
             destinationKey,
@@ -1152,42 +1387,60 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
         })
 
         let conflictKeys = new Set()
-        if (!overwrite) {
+        let subRenameMap = new Map()
+        if (conflictStrategy !== 'overwrite') {
           conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+
+          // 如果是 rename 策略，生成重命名映射
+          if (conflictStrategy === 'rename' && conflictKeys.size > 0) {
+            const conflictItems = subItems
+              .filter(item => conflictKeys.has(item.targetKey))
+              .map(item => ({
+                originalKey: item.targetKey,
+                isFolder: false,
+              }))
+            subRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, conflictItems)
+          }
         }
 
         // 并行复制子对象（使用信号量控制并发）
         let copiedCount = 0
         let skippedCount = 0
+        let renamedCount = 0
         const skippedFiles = []
+        const renamedFiles = []
 
-        // 先过滤掉冲突文件
-        const subObjectsToCopy = allObjects.filter(obj => {
+        // 构建复制任务列表
+        const copyTasks = allObjects.map(obj => {
           const relativePath = obj.Key.substring(sourceKey.length)
           const targetKey = `${destinationKey}${relativePath}`
-          if (!overwrite && conflictKeys.has(targetKey)) {
-            skippedCount++
-            skippedFiles.push(targetKey)
-            return false
+
+          if (conflictKeys.has(targetKey)) {
+            if (conflictStrategy === 'rename') {
+              const newKey = subRenameMap.get(targetKey) || targetKey
+              return { obj, targetKey: newKey, isRename: true, originalTargetKey: targetKey }
+            } else if (conflictStrategy === 'skip') {
+              skippedCount++
+              skippedFiles.push(targetKey)
+              return null
+            }
+            // overwrite 模式继续使用原目标路径
           }
-          return true
-        })
+          return { obj, targetKey, isRename: false }
+        }).filter(Boolean)
 
         // 并行复制（信号量控制总并发数）
         const copyResults = await Promise.all(
-          subObjectsToCopy.map(obj =>
+          copyTasks.map(task =>
             semaphore.run(async () => {
-              const relativePath = obj.Key.substring(sourceKey.length)
-              const targetKey = `${destinationKey}${relativePath}`
-
               const copyCommand = new CopyObjectCommand({
                 Bucket: targetBucket,
-                CopySource: `${bucketName}/${encodeURIComponent(obj.Key)}`,
-                Key: targetKey,
+                CopySource: `${bucketName}/${encodeURIComponent(task.obj.Key)}`,
+                Key: task.targetKey,
               })
               await r2Client.send(copyCommand)
-              return { success: true }
-            }).catch(error => ({ success: false, error: error.message, key: obj.Key }))
+              return { success: true, isRename: task.isRename, originalTargetKey: task.originalTargetKey, newKey: task.targetKey }
+            }).catch(error => ({ success: false, error: error.message, key: task.obj.Key }))
           )
         )
 
@@ -1195,6 +1448,10 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
         for (const result of copyResults) {
           if (result.success) {
             copiedCount++
+            if (result.isRename) {
+              renamedCount++
+              renamedFiles.push({ original: result.originalTargetKey, renamed: result.newKey })
+            }
           } else {
             stats.totalErrors++
           }
@@ -1203,24 +1460,64 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
         // 更新统计
         stats.totalCopied += copiedCount
         stats.totalSkipped += skippedCount
+        stats.totalRenamed += renamedCount
 
         return {
           sourceKey,
           destinationKey,
-          status: copiedCount > 0 ? 'success' : 'skipped',
+          status: copiedCount > 0 ? (renamedCount > 0 ? 'renamed' : 'success') : 'skipped',
           copied: copiedCount,
           skipped: skippedCount,
+          renamed: renamedCount,
           skippedFiles: skippedFiles.length <= 10 ? skippedFiles : undefined,
+          renamedFiles: renamedFiles.length <= 10 ? renamedFiles : undefined,
         }
       } else {
         // 单文件复制 - 使用预先批量检测的冲突结果
-        if (!overwrite && topLevelConflicts.has(destinationKey)) {
-          stats.totalSkipped++
-          return {
-            sourceKey,
-            destinationKey,
-            status: 'skipped',
-            skipReason: '目标已存在',
+        if (topLevelConflicts.has(destinationKey)) {
+          // 处理冲突
+          if (conflictStrategy === 'rename') {
+            // 使用重命名映射
+            const newKey = topLevelRenameMap.get(destinationKey) || destinationKey
+            const copyCommand = new CopyObjectCommand({
+              Bucket: targetBucket,
+              CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
+              Key: newKey,
+            })
+            await r2Client.send(copyCommand)
+            stats.totalCopied++
+            stats.totalRenamed++
+            return {
+              sourceKey,
+              destinationKey,
+              status: 'renamed',
+              renamedTo: newKey,
+              copied: 1,
+            }
+          } else if (conflictStrategy === 'overwrite') {
+            // 覆盖模式
+            const copyCommand = new CopyObjectCommand({
+              Bucket: targetBucket,
+              CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
+              Key: destinationKey,
+            })
+            await r2Client.send(copyCommand)
+            stats.totalCopied++
+            return {
+              sourceKey,
+              destinationKey,
+              status: 'success',
+              copied: 1,
+            }
+          } else {
+            // skip 模式（默认）
+            stats.totalSkipped++
+            return {
+              sourceKey,
+              destinationKey,
+              status: 'skipped',
+              skipReason: '目标已存在',
+            }
           }
         }
 
@@ -1263,31 +1560,35 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
             total: totalItems,
             sourceKey: item.sourceKey,
             destKey: item.destinationKey,
-            stats: { totalCopied: stats.totalCopied, totalSkipped: stats.totalSkipped, totalErrors: stats.totalErrors }
+            stats: { totalCopied: stats.totalCopied, totalSkipped: stats.totalSkipped, totalErrors: stats.totalErrors, totalRenamed: stats.totalRenamed },
+            itemResult: result
           })
         }
       }
     )
 
     // 发送完成事件或返回 JSON
+    const summaryMsg = `批量复制完成: 成功 ${stats.totalCopied}, 跳过 ${stats.totalSkipped}, 重命名 ${stats.totalRenamed}, 失败 ${stats.totalErrors}`
     if (isSSERequest) {
       sendSSEProgress(res, {
         type: 'complete',
         success: true,
-        message: `批量复制完成: 成功 ${stats.totalCopied}, 跳过 ${stats.totalSkipped}, 失败 ${stats.totalErrors}`,
+        message: summaryMsg,
         results,
         totalCopied: stats.totalCopied,
         totalSkipped: stats.totalSkipped,
+        totalRenamed: stats.totalRenamed,
         totalErrors: stats.totalErrors
       })
       res.end()
     } else {
       res.json({
         success: true,
-        message: `批量复制完成: 成功 ${stats.totalCopied}, 跳过 ${stats.totalSkipped}, 失败 ${stats.totalErrors}`,
+        message: summaryMsg,
         results,
         totalCopied: stats.totalCopied,
         totalSkipped: stats.totalSkipped,
+        totalRenamed: stats.totalRenamed,
         totalErrors: stats.totalErrors
       })
     }
@@ -1304,7 +1605,10 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
   }
 
   const { bucketName } = req.params
-  const { items, destinationBucket, overwrite = false, maxConcurrency = 4 } = req.body
+  const { items, destinationBucket, conflictStrategy = 'skip', maxConcurrency = 4 } = req.body
+
+  // 兼容旧的 overwrite 参数
+  const overwrite = conflictStrategy === 'overwrite'
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: '请提供要移动的对象列表' })
@@ -1324,7 +1628,7 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
   const totalItems = items.length
 
   // 共享统计对象（原子更新）
-  const stats = { totalMoved: 0, totalSkipped: 0, totalErrors: 0 }
+  const stats = { totalMoved: 0, totalSkipped: 0, totalErrors: 0, totalRenamed: 0 }
 
   // 共享信号量（控制文件夹内部并发）
   const semaphore = new Semaphore(maxConcurrency)
@@ -1337,10 +1641,27 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
     }))
 
   let topLevelConflicts = new Set()
-  if (!overwrite && topLevelSingleFiles.length > 0) {
+  let topLevelRenameMap = new Map()
+
+  if (conflictStrategy !== 'overwrite' && topLevelSingleFiles.length > 0) {
     sendSSELog(res, isSSERequest, `[BatchMove] 开始顶层单文件冲突检测: ${topLevelSingleFiles.length} 个文件`)
     topLevelConflicts = await detectConflictsWithListObjects(bucketName, targetBucket, topLevelSingleFiles)
     sendSSELog(res, isSSERequest, `[BatchMove] 顶层单文件冲突检测完成: ${topLevelConflicts.size} 个冲突`)
+
+    // 如果是 rename 策略，批量生成重命名映射
+    if (conflictStrategy === 'rename' && topLevelConflicts.size > 0) {
+      const conflictItems = items
+        .filter(item => !item.isFolder && !item.sourceKey.endsWith('/'))
+        .filter(item => topLevelConflicts.has(item.destinationKey))
+        .map(item => ({
+          originalKey: item.destinationKey,
+          isFolder: false,
+        }))
+
+      sendSSELog(res, isSSERequest, `[BatchMove] 为 ${conflictItems.length} 个冲突项生成重命名映射`)
+      topLevelRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, conflictItems)
+      sendSSELog(res, isSSERequest, `[BatchMove] 重命名映射生成完成`)
+    }
   }
 
   // 处理单个 item 的移动逻辑
@@ -1396,31 +1717,48 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
 
         if (allObjects.length === 0) {
           // 空文件夹
-          if (!overwrite) {
+          let targetFolderKey = destinationKey
+          let needsRename = false
+
+          if (conflictStrategy !== 'overwrite') {
             try {
               const headCommand = new HeadObjectCommand({
                 Bucket: targetBucket,
                 Key: destinationKey,
               })
               await r2Client.send(headCommand)
-              stats.totalSkipped++
-              return {
-                sourceKey,
-                destinationKey,
-                status: 'skipped',
-                skipReason: '目标已存在',
+
+              // 目标已存在
+              if (conflictStrategy === 'rename') {
+                // 生成新名称
+                const renameMap = await generateUniqueNamesBatch(bucketName, targetBucket, [{
+                  originalKey: destinationKey,
+                  isFolder: true,
+                }])
+                targetFolderKey = renameMap.get(destinationKey) || destinationKey
+                needsRename = true
+              } else if (conflictStrategy === 'skip') {
+                stats.totalSkipped++
+                return {
+                  sourceKey,
+                  destinationKey,
+                  status: 'skipped',
+                  skipReason: '目标已存在',
+                }
               }
+              // overwrite 模式继续使用原目标路径
             } catch (headError) {
               if (headError.name !== 'NotFound' && headError.$metadata?.httpStatusCode !== 404) {
                 throw headError
               }
+              // 目标不存在，继续移动
             }
           }
 
           const copyCommand = new CopyObjectCommand({
             Bucket: targetBucket,
             CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
-            Key: destinationKey,
+            Key: targetFolderKey,
           })
           await r2Client.send(copyCommand)
 
@@ -1431,6 +1769,16 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
           await r2Client.send(deleteCommand)
 
           stats.totalMoved++
+          if (needsRename) {
+            stats.totalRenamed++
+            return {
+              sourceKey,
+              destinationKey,
+              status: 'renamed',
+              renamedTo: targetFolderKey,
+              moved: 1,
+            }
+          }
           return {
             sourceKey,
             destinationKey,
@@ -1447,49 +1795,74 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
         })
 
         let conflictKeys = new Set()
-        if (!overwrite) {
+        let subRenameMap = new Map()
+        if (conflictStrategy !== 'overwrite') {
           conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+
+          // 如果是 rename 策略，生成重命名映射
+          if (conflictStrategy === 'rename' && conflictKeys.size > 0) {
+            const conflictItems = subItems
+              .filter(item => conflictKeys.has(item.targetKey))
+              .map(item => ({
+                originalKey: item.targetKey,
+                isFolder: false,
+              }))
+            subRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, conflictItems)
+          }
         }
 
         // 并行复制子对象（使用信号量控制并发）
         let movedCount = 0
         let skippedCount = 0
+        let renamedCount = 0
         const skippedFiles = []
+        const renamedFiles = []
 
-        // 先过滤掉冲突文件
-        const subObjectsToCopy = allObjects.filter(obj => {
+        // 构建复制任务列表
+        const copyTasks = allObjects.map(obj => {
           const relativePath = obj.Key.substring(sourceKey.length)
           const targetObjKey = `${destinationKey}${relativePath}`
-          if (!overwrite && conflictKeys.has(targetObjKey)) {
-            skippedCount++
-            skippedFiles.push(targetObjKey)
-            return false
+
+          if (conflictKeys.has(targetObjKey)) {
+            if (conflictStrategy === 'rename') {
+              const newKey = subRenameMap.get(targetObjKey) || targetObjKey
+              return { obj, targetKey: newKey, isRename: true, originalTargetKey: targetObjKey }
+            } else if (conflictStrategy === 'skip') {
+              skippedCount++
+              skippedFiles.push(targetObjKey)
+              return null
+            }
+            // overwrite 模式继续使用原目标路径
           }
-          return true
-        })
+          return { obj, targetKey: targetObjKey, isRename: false }
+        }).filter(Boolean)
 
         // 并行复制（信号量控制总并发数）
         const copyResults = await Promise.all(
-          subObjectsToCopy.map(obj =>
+          copyTasks.map(task =>
             semaphore.run(async () => {
-              const relativePath = obj.Key.substring(sourceKey.length)
-              const targetObjKey = `${destinationKey}${relativePath}`
-
               const copyCommand = new CopyObjectCommand({
                 Bucket: targetBucket,
-                CopySource: `${bucketName}/${encodeURIComponent(obj.Key)}`,
-                Key: targetObjKey,
+                CopySource: `${bucketName}/${encodeURIComponent(task.obj.Key)}`,
+                Key: task.targetKey,
               })
               await r2Client.send(copyCommand)
-              return { success: true, sourceKey: obj.Key }
+              return { success: true, sourceKey: task.obj.Key, isRename: task.isRename, originalTargetKey: task.originalTargetKey, newKey: task.targetKey }
             }).catch(error => ({ success: false, error: error.message }))
           )
         )
 
         // 收集成功复制的 keys
-        const copiedKeys = copyResults
-          .filter(r => r.success)
-          .map(r => r.sourceKey)
+        const copiedKeys = []
+        for (const result of copyResults) {
+          if (result.success) {
+            copiedKeys.push(result.sourceKey)
+            if (result.isRename) {
+              renamedCount++
+              renamedFiles.push({ original: result.originalTargetKey, renamed: result.newKey })
+            }
+          }
+        }
 
         movedCount = copiedKeys.length
 
@@ -1511,32 +1884,44 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
         // 更新统计
         stats.totalMoved += movedCount
         stats.totalSkipped += skippedCount
+        stats.totalRenamed += renamedCount
 
         return {
           sourceKey,
           destinationKey,
-          status: movedCount > 0 ? 'success' : 'skipped',
+          status: movedCount > 0 ? (renamedCount > 0 ? 'renamed' : 'success') : 'skipped',
           moved: movedCount,
           skipped: skippedCount,
+          renamed: renamedCount,
           skippedFiles: skippedFiles.length <= 10 ? skippedFiles : undefined,
+          renamedFiles: renamedFiles.length <= 10 ? renamedFiles : undefined,
         }
       } else {
         // 单文件移动 - 使用预先批量检测的冲突结果
-        if (!overwrite && topLevelConflicts.has(destinationKey)) {
-          stats.totalSkipped++
-          return {
-            sourceKey,
-            destinationKey,
-            status: 'skipped',
-            skipReason: '目标已存在',
+        let targetFileKey = destinationKey
+        let needsRename = false
+
+        if (topLevelConflicts.has(destinationKey)) {
+          if (conflictStrategy === 'rename') {
+            targetFileKey = topLevelRenameMap.get(destinationKey) || destinationKey
+            needsRename = true
+          } else if (conflictStrategy === 'skip') {
+            stats.totalSkipped++
+            return {
+              sourceKey,
+              destinationKey,
+              status: 'skipped',
+              skipReason: '目标已存在',
+            }
           }
+          // overwrite 模式继续使用原目标路径
         }
 
         // 复制
         const copyCommand = new CopyObjectCommand({
           Bucket: targetBucket,
           CopySource: `${bucketName}/${encodeURIComponent(sourceKey)}`,
-          Key: destinationKey,
+          Key: targetFileKey,
         })
         await r2Client.send(copyCommand)
 
@@ -1548,6 +1933,16 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
         await r2Client.send(deleteCommand)
 
         stats.totalMoved++
+        if (needsRename) {
+          stats.totalRenamed++
+          return {
+            sourceKey,
+            destinationKey,
+            status: 'renamed',
+            renamedTo: targetFileKey,
+            moved: 1,
+          }
+        }
         return {
           sourceKey,
           destinationKey,
@@ -1579,31 +1974,35 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
             total: totalItems,
             sourceKey: item.sourceKey,
             destKey: item.destinationKey,
-            stats: { totalMoved: stats.totalMoved, totalSkipped: stats.totalSkipped, totalErrors: stats.totalErrors }
+            stats: { totalMoved: stats.totalMoved, totalSkipped: stats.totalSkipped, totalRenamed: stats.totalRenamed, totalErrors: stats.totalErrors },
+            itemResult: result
           })
         }
       }
     )
 
     // 发送完成事件或返回 JSON
+    const summaryMsg = `批量移动完成: 成功 ${stats.totalMoved}, 跳过 ${stats.totalSkipped}, 重命名 ${stats.totalRenamed}, 失败 ${stats.totalErrors}`
     if (isSSERequest) {
       sendSSEProgress(res, {
         type: 'complete',
         success: true,
-        message: `批量移动完成: 成功 ${stats.totalMoved}, 跳过 ${stats.totalSkipped}, 失败 ${stats.totalErrors}`,
+        message: summaryMsg,
         results,
         totalMoved: stats.totalMoved,
         totalSkipped: stats.totalSkipped,
+        totalRenamed: stats.totalRenamed,
         totalErrors: stats.totalErrors
       })
       res.end()
     } else {
       res.json({
         success: true,
-        message: `批量移动完成: 成功 ${stats.totalMoved}, 跳过 ${stats.totalSkipped}, 失败 ${stats.totalErrors}`,
+        message: summaryMsg,
         results,
         totalMoved: stats.totalMoved,
         totalSkipped: stats.totalSkipped,
+        totalRenamed: stats.totalRenamed,
         totalErrors: stats.totalErrors
       })
     }

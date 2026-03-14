@@ -1,3 +1,5 @@
+import type { ConflictStrategy } from '@/types/file'
+
 const API_BASE = 'http://localhost:3001/api'
 
 interface ApiResponse<T = unknown> {
@@ -357,20 +359,27 @@ class ApiService {
       isFolder: boolean
     }>,
     destinationBucket?: string,
-    overwrite: boolean = false,
+    conflictStrategy: ConflictStrategy = 'skip',
     maxConcurrency: number = 4,
     onProgress?: (data: {
-      type: 'progress' | 'complete' | 'error' | 'log'
+      type: 'progress' | 'complete' | 'error' | 'log' | 'itemComplete'
       current?: number
       total?: number
       currentSourceKey?: string   // 当前处理的源文件
       currentDestKey?: string     // 当前处理的目标文件
       totalCopied?: number
       totalSkipped?: number
+      totalRenamed?: number
       totalErrors?: number
       message?: string
       error?: string
       level?: 'info' | 'warn' | 'error'
+      // itemComplete 事件特有字段
+      sourceKey?: string
+      destinationKey?: string
+      status?: 'success' | 'skipped' | 'error' | 'renamed'
+      skipReason?: string
+      renamedTo?: string
     }) => void
   ): Promise<{
     success: boolean
@@ -378,13 +387,15 @@ class ApiService {
     results: Array<{
       sourceKey: string
       destinationKey: string
-      status: 'success' | 'skipped' | 'error'
+      status: 'success' | 'skipped' | 'error' | 'renamed'
       copied?: number
       error?: string
       skipReason?: string
+      renamedTo?: string
     }>
     totalCopied: number
     totalSkipped: number
+    totalRenamed: number
     totalErrors: number
   }> {
     return new Promise((resolve, reject) => {
@@ -424,6 +435,7 @@ class ApiService {
                   results: data.results,
                   totalCopied: data.totalCopied,
                   totalSkipped: data.totalSkipped,
+                  totalRenamed: data.totalRenamed || 0,
                   totalErrors: data.totalErrors,
                 })
               } else if (data.type === 'error') {
@@ -455,7 +467,7 @@ class ApiService {
 
       xhr.onerror = () => reject(new Error('Network error'))
 
-      xhr.send(JSON.stringify({ items, destinationBucket, overwrite, maxConcurrency }))
+      xhr.send(JSON.stringify({ items, destinationBucket, conflictStrategy, maxConcurrency }))
     })
   }
 
@@ -468,20 +480,27 @@ class ApiService {
       isFolder: boolean
     }>,
     destinationBucket?: string,
-    overwrite: boolean = false,
+    conflictStrategy: ConflictStrategy = 'skip',
     maxConcurrency: number = 4,
     onProgress?: (data: {
-      type: 'progress' | 'complete' | 'error' | 'log'
+      type: 'progress' | 'complete' | 'error' | 'log' | 'itemComplete'
       current?: number
       total?: number
       currentSourceKey?: string   // 当前处理的源文件
       currentDestKey?: string     // 当前处理的目标文件
       totalMoved?: number
       totalSkipped?: number
+      totalRenamed?: number
       totalErrors?: number
       message?: string
       error?: string
       level?: 'info' | 'warn' | 'error'
+      // itemComplete 事件特有字段
+      sourceKey?: string
+      destinationKey?: string
+      status?: 'success' | 'skipped' | 'error' | 'renamed'
+      skipReason?: string
+      renamedTo?: string
     }) => void
   ): Promise<{
     success: boolean
@@ -489,13 +508,15 @@ class ApiService {
     results: Array<{
       sourceKey: string
       destinationKey: string
-      status: 'success' | 'skipped' | 'error'
+      status: 'success' | 'skipped' | 'error' | 'renamed'
       moved?: number
       error?: string
       skipReason?: string
+      renamedTo?: string
     }>
     totalMoved: number
     totalSkipped: number
+    totalRenamed: number
     totalErrors: number
   }> {
     return new Promise((resolve, reject) => {
@@ -529,6 +550,7 @@ class ApiService {
                   results: data.results,
                   totalMoved: data.totalMoved,
                   totalSkipped: data.totalSkipped,
+                  totalRenamed: data.totalRenamed || 0,
                   totalErrors: data.totalErrors,
                 })
               } else if (data.type === 'error') {
@@ -560,7 +582,39 @@ class ApiService {
 
       xhr.onerror = () => reject(new Error('Network error'))
 
-      xhr.send(JSON.stringify({ items, destinationBucket, overwrite, maxConcurrency }))
+      xhr.send(JSON.stringify({ items, destinationBucket, conflictStrategy, maxConcurrency }))
+    })
+  }
+
+  // 检测批量操作冲突
+  async detectConflicts(
+    bucketName: string,
+    items: Array<{
+      sourceKey: string
+      destinationKey: string
+      isFolder: boolean
+    }>,
+    destinationBucket?: string
+  ): Promise<{
+    success: boolean
+    conflicts: Array<{
+      sourceKey: string
+      targetKey: string
+      isFolder: boolean
+      sourceInfo?: {
+        size: number
+        lastModified: Date
+      }
+      targetInfo?: {
+        size: number
+        lastModified: Date
+      }
+    }>
+    totalConflicts: number
+  }> {
+    return this.request(`/buckets/${bucketName}/objects/detect-conflicts`, {
+      method: 'POST',
+      body: JSON.stringify({ items, destinationBucket }),
     })
   }
 
