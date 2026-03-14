@@ -21,6 +21,9 @@ import {
   MIN_DOWNLOAD_CHUNK_STEP,
   MAX_DOWNLOAD_CHUNK_STEP,
 } from '@/types/chunk'
+import {
+  DEFAULT_RETRY_SETTINGS,
+} from '@/types/retry'
 
 type SettingsTab = 'credentials' | 'concurrency' | 'system' | 'danger'
 
@@ -57,12 +60,16 @@ export function SettingsDialog({
     uploadChunkStep,
     downloadChunkStep,
     defaultDownloadPath,
+    retryMaxAttempts,
+    retryBaseDelay,
+    retryMaxDelay,
     setCredentials,
     clearCredentials,
     setConnected,
     setConcurrencySettings,
     setDownloadPath,
     setChunkStepSettings,
+    setRetrySettings,
     resetToDefaults,
   } = useConfigStore()
 
@@ -78,6 +85,9 @@ export function SettingsDialog({
     uploadChunkStepMB: uploadChunkStep / (1024 * 1024),
     downloadChunkStepMB: downloadChunkStep / (1024 * 1024),
     defaultDownloadPath,
+    retryMaxAttempts,
+    retryBaseDelaySec: retryBaseDelay / 1000,
+    retryMaxDelaySec: retryMaxDelay / 1000,
   })
 
   // 同步 store 中的并发设置到本地状态
@@ -88,8 +98,11 @@ export function SettingsDialog({
       uploadChunkStepMB: uploadChunkStep / (1024 * 1024),
       downloadChunkStepMB: downloadChunkStep / (1024 * 1024),
       defaultDownloadPath,
+      retryMaxAttempts,
+      retryBaseDelaySec: retryBaseDelay / 1000,
+      retryMaxDelaySec: retryMaxDelay / 1000,
     })
-  }, [maxUploadThreads, maxDownloadThreads, uploadChunkStep, downloadChunkStep, defaultDownloadPath])
+  }, [maxUploadThreads, maxDownloadThreads, uploadChunkStep, downloadChunkStep, defaultDownloadPath, retryMaxAttempts, retryBaseDelay, retryMaxDelay])
 
   const [showSecret, setShowSecret] = useState(false)
   const [isTesting, setIsTesting] = useState(false)
@@ -136,6 +149,11 @@ export function SettingsDialog({
       downloadChunkStep: concurrencyData.downloadChunkStepMB * 1024 * 1024,
     })
     setDownloadPath(concurrencyData.defaultDownloadPath)
+    setRetrySettings({
+      retryMaxAttempts: concurrencyData.retryMaxAttempts,
+      retryBaseDelay: concurrencyData.retryBaseDelaySec * 1000,
+      retryMaxDelay: concurrencyData.retryMaxDelaySec * 1000,
+    })
 
     await api.configure(formData)
     setConnected({ isConnected: true, lastChecked: new Date().toISOString() })
@@ -417,6 +435,79 @@ export function SettingsDialog({
           )}
         </div>
 
+        {/* 重试设置 */}
+        <div className="pt-2 border-t">
+          <h4 className="text-sm font-medium mb-3">错误重试</h4>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-muted-foreground">
+                  最大重试次数
+                </label>
+                <span className="text-xs font-mono text-foreground">
+                  {concurrencyData.retryMaxAttempts} 次
+                </span>
+              </div>
+              <Slider
+                min={0}
+                max={10}
+                step={1}
+                value={[concurrencyData.retryMaxAttempts]}
+                onValueChange={([value]) =>
+                  setConcurrencyData((prev) => ({
+                    ...prev,
+                    retryMaxAttempts: value,
+                  }))
+                }
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>禁用</span>
+                <span>10 次</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">基础延迟 (秒)</label>
+                <Input
+                  type="number"
+                  min={0.5}
+                  max={5}
+                  step={0.5}
+                  value={concurrencyData.retryBaseDelaySec}
+                  onChange={(e) =>
+                    setConcurrencyData((prev) => ({
+                      ...prev,
+                      retryBaseDelaySec: Math.max(0.5, Math.min(5, parseFloat(e.target.value) || 1)),
+                    }))
+                  }
+                  className="font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground">最大延迟 (秒)</label>
+                <Input
+                  type="number"
+                  min={10}
+                  max={60}
+                  step={5}
+                  value={concurrencyData.retryMaxDelaySec}
+                  onChange={(e) =>
+                    setConcurrencyData((prev) => ({
+                      ...prev,
+                      retryMaxDelaySec: Math.max(10, Math.min(60, parseInt(e.target.value) || 30)),
+                    }))
+                  }
+                  className="font-mono text-sm"
+                />
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            网络错误、服务器 5xx 响应时自动重试，使用指数退避策略
+          </p>
+        </div>
+
         <div className="flex justify-end">
           <Button size="sm" onClick={handleSave}>
             保存
@@ -471,6 +562,9 @@ export function SettingsDialog({
                 uploadChunkStepMB: DEFAULT_CONFIG.uploadChunkStep / (1024 * 1024),
                 downloadChunkStepMB: DEFAULT_CONFIG.downloadChunkStep / (1024 * 1024),
                 defaultDownloadPath: DEFAULT_CONFIG.defaultDownloadPath,
+                retryMaxAttempts: DEFAULT_RETRY_SETTINGS.retryMaxAttempts,
+                retryBaseDelaySec: DEFAULT_RETRY_SETTINGS.retryBaseDelay / 1000,
+                retryMaxDelaySec: DEFAULT_RETRY_SETTINGS.retryMaxDelay / 1000,
               })
               alert('设置已重置为默认值')
             }

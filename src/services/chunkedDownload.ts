@@ -11,6 +11,7 @@ import {
   DEFAULT_DOWNLOAD_CHUNK_STEP,
 } from '@/types/chunk'
 import type { ThreadPoolClient } from '@/types/threadPool'
+import type { RetryConfig, RetryContext } from '@/types/retry'
 import {
   calculateChunksByStep,
   createRangeHeader,
@@ -19,6 +20,7 @@ import {
 } from '@/lib/chunkManager'
 import { transferLogger } from '@/lib/transferLogger'
 import { downloadCacheManager } from '@/lib/downloadCacheManager'
+import { withRetry, getRetryConfig } from '@/lib/retryHelper'
 
 const API_BASE = 'http://localhost:3001/api'
 
@@ -383,9 +385,59 @@ export class ChunkedDownloader {
   }
 
   /**
-   * 下载单个分块（支持断点续传）
+   * 下载单个分块（带重试）
    */
   private async downloadChunk(chunk: ChunkInfo): Promise<ChunkDownloadResult> {
+    const retryConfig = this.getRetryConfig()
+
+    // 创建重试上下文
+    const context: RetryContext = {
+      operation: 'download',
+      attempt: 0,
+      maxAttempts: retryConfig.retryMaxAttempts,
+      chunkIndex: chunk.index,
+    }
+
+    // 创建 AbortController 用于暂停/取消
+    const abortController = new AbortController()
+
+    // 监听暂停/取消状态
+    const checkPaused = () => this.paused
+    const checkAborted = () => this.aborted
+
+    try {
+      const result = await withRetry(
+        () => this.downloadChunkOnce(chunk),
+        {
+          config: retryConfig,
+          context,
+          signal: abortController.signal,
+          isPaused: checkPaused,
+          isAborted: checkAborted,
+        }
+      )
+
+      // 重试成功
+      if (context.attempt > 0) {
+        transferLogger.retrySucceeded('download', context.attempt, undefined, chunk.index)
+      }
+
+      return result
+    } catch (error) {
+      // 如果是暂停/取消导致的错误，直接抛出
+      if (this.paused || this.aborted) {
+        throw error
+      }
+
+      // 重试失败，抛出错误
+      throw error
+    }
+  }
+
+  /**
+   * 下载单个分块（单次尝试）
+   */
+  private async downloadChunkOnce(chunk: ChunkInfo): Promise<ChunkDownloadResult> {
     if (this.aborted || this.paused) {
       throw new Error(this.paused ? 'Download paused' : 'Download aborted')
     }
@@ -418,14 +470,23 @@ export class ChunkedDownloader {
 
     console.log(`[Download] Chunk ${chunk.index}: resuming from ${resumeOffset}, requesting ${remainingSize} bytes`)
 
-    const response = await fetch(url, {
-      headers: { Range: rangeHeader },
-    })
+    let response: Response
+    try {
+      response = await fetch(url, {
+        headers: { Range: rangeHeader },
+      })
+    } catch (networkError) {
+      // 网络错误（可重试）
+      const errorMsg = 'network error'
+      transferLogger.chunkFailed(chunk.index, errorMsg)
+      throw new Error(errorMsg)
+    }
 
     if (!response.ok) {
-      const error = new Error(`HTTP ${response.status}: ${response.statusText}`)
-      transferLogger.chunkFailed(chunk.index, error)
-      throw error
+      // HTTP 错误（包含状态码，用于重试判断）
+      const errorMsg = `HTTP ${response.status}: ${response.statusText}`
+      transferLogger.chunkFailed(chunk.index, errorMsg)
+      throw new Error(errorMsg)
     }
 
     // 读取响应体
@@ -500,6 +561,13 @@ export class ChunkedDownloader {
       // 移除活跃读取器
       this.activeReaders.delete(chunk.index)
     }
+  }
+
+  /**
+   * 获取重试配置
+   */
+  private getRetryConfig(): RetryConfig {
+    return getRetryConfig()
   }
 
   /**

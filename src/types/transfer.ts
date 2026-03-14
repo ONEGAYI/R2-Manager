@@ -11,7 +11,7 @@ export type TransferOperation = 'upload' | 'download' | 'copy' | 'move'
 /**
  * 传输状态
  */
-export type TransferStatus = 'pending' | 'running' | 'paused' | 'completed' | 'error'
+export type TransferStatus = 'pending' | 'running' | 'paused' | 'retrying' | 'completed' | 'error'
 
 /**
  * 暂停状态的任务（用于持久化恢复）
@@ -59,6 +59,11 @@ export interface TransferTask {
   destinationBucket?: string // 目标桶（跨桶操作）
   totalItems?: number        // 总项目数（批量操作）
   completedItems?: number    // 已完成项目数
+  // 重试相关字段
+  retrying?: boolean         // 是否正在重试
+  retryAttempt?: number      // 当前重试次数
+  retryMaxAttempts?: number  // 最大重试次数
+  retryError?: string        // 重试错误信息
 }
 
 /**

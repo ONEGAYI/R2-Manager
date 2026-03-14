@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.10] - 2026-03-14
+
+### Added
+- **错误重试机制** - 网络错误和服务器临时不可用时自动重试
+  - `src/types/retry.ts` - 重试类型定义（RetrySettings、RetryConfig、RetryContext）
+  - `src/lib/retryHelper.ts` - 核心重试逻辑（指数退避 + 随机抖动）
+    - `isRetryableError()` - 判断错误是否可重试（网络错误、5xx、429、408）
+    - `calculateDelay()` - 计算重试延迟（指数退避 + 30% 抖动）
+    - `withRetry()` - 带重试的异步操作包装器
+  - `src/lib/transferLogger.ts` - 新增重试日志方法（retryScheduled、retrySucceeded、retryFailed）
+  - `src/stores/configStore.ts` - 新增重试配置（retryMaxAttempts、retryBaseDelay、retryMaxDelay）
+  - `src/components/config/SettingsDialog.tsx` - 设置对话框新增重试配置 UI
+
+### Improved
+- **ChunkedUploader** - 上传分块失败时自动重试
+  - `uploadPart()` 拆分为 `uploadPart()` + `uploadPartOnce()`
+  - 支持暂停/取消时中断重试等待
+  - HTTP 错误包含状态码用于重试判断
+- **ChunkedDownloader** - 下载分块失败时自动重试
+  - `downloadChunk()` 拆分为 `downloadChunk()` + `downloadChunkOnce()`
+  - 网络错误和服务器 5xx 自动重试
+- **TaskItem** - 显示重试状态
+  - 重试中显示"正在重试 (1/3)"
+  - 进度条显示黄色
+  - 显示重试错误信息
+
+### Technical
+- **重试策略**：指数退避 + 随机抖动，避免服务器压力过大
+  - 基础延迟：1 秒
+  - 最大延迟：30 秒
+  - 默认重试次数：3 次
+- **可重试错误**：
+  - 网络错误（NetworkError、TimeoutError）
+  - HTTP 状态码：408、429、500、502、503、504
+- **不可重试错误**：
+  - HTTP 状态码：400、401、403、404、409
+
+---
+
 ## [0.9.9] - 2026-03-14
 
 ### Added

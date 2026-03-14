@@ -1,6 +1,6 @@
 [package]
 name = "cloudflare-r2-manager"
-version = "0.9.8"
+version = "0.9.10"
 description = "A modern Cloudflare R2 storage bucket management tool"
 authors = ["R2Manager Team"]
 license = "MIT"

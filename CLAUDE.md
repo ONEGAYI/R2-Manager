@@ -88,7 +88,7 @@ cloudflare-r2-manager/
 │   │   ├── chunkedUpload.ts          # 分块上传实现
 │   │   └── chunkedDownload.ts        # 分块下载实现
 │   ├── 📁 stores/                    # Zustand 状态
-│   │   ├── configStore.ts            # 配置状态（凭证、并发设置）
+│   │   ├── configStore.ts            # 配置状态（凭证、并发设置、重试配置）
 │   │   ├── bucketStore.ts            # 桶列表状态
 │   │   ├── fileStore.ts              # 文件列表状态
 │   │   ├── transferStore.ts          # 传输中心状态（含批量操作任务）
@@ -99,7 +99,8 @@ cloudflare-r2-manager/
 │   │   ├── file.ts                   # 文件类型（含批量操作类型）
 │   │   ├── transfer.ts               # 传输类型（upload/download/copy/move）
 │   │   ├── chunk.ts                  # 分块传输类型
-│   │   └── threadPool.ts             # 全局线程池类型
+│   │   ├── threadPool.ts             # 全局线程池类型
+│   │   └── retry.ts                  # 重试机制类型
 │   ├── 📁 lib/                       # 工具库
 │   │   ├── cn.ts                     # className 合并工具
 │   │   ├── utils.ts                  # 通用工具函数
@@ -111,7 +112,8 @@ cloudflare-r2-manager/
 │   │   ├── chunkManager.ts           # 分块计算逻辑
 │   │   ├── abortRegistry.ts          # Abort 函数注册表
 │   │   ├── downloadCacheManager.ts   # 下载缓存管理（IndexedDB）
-│   │   └── threadPool.ts             # 全局线程池管理器
+│   │   ├── threadPool.ts             # 全局线程池管理器
+│   │   └── retryHelper.ts            # 错误重试机制核心逻辑
 │   ├── 📁 styles/                    # 全局样式
 │   ├── App.tsx                       # 主应用
 │   └── main.tsx                      # 入口文件
@@ -226,10 +228,11 @@ cloudflare-r2-manager/
 - [x] 传输中心进度反馈（实时进度条、速度显示）
 - [x] 大文件上传支持（流式转发、真实进度、超时保护）
 - [x] 暂停/恢复传输（上传和下载均已完成）
-- [x] **多线程分块传输** - Phase 1 & 2 & 3 & 4 完成
+- [x] **多线程分块传输** - Phase 1 & 2 & 3 & 4 & 5 完成
   - [x] **下载断点续传**（真正的断点续传，从暂停位置继续而非重新下载）
     - [ ] bug? offset is out of boundry（多次暂停恢复后）
   - [x] **全局线程池**（上传/下载独立管理，按任务顺序分配资源，配置热更新）
+  - [x] **错误重试机制**（网络错误和服务器 5xx 自动重试，指数退避策略）
 - [x] 响应式布局、面包屑导航布局优化
 - [ ] 动效优化
 - [ ] 键盘快捷键

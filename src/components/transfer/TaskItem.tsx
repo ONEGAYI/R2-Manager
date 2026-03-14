@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { X, Pause, Play } from 'lucide-react'
+import { X, Pause, Play, RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import type { TransferTask } from '@/types/transfer'
 
@@ -66,6 +66,7 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
   const loaded = task.loadedBytes || 0
   const isError = task.status === 'error'
   const isPending = task.status === 'pending'
+  const isRetrying = task.status === 'retrying' || task.retrying
   const isBatchOperation = task.direction === 'copy' || task.direction === 'move'
 
   // 获取操作类型图标
@@ -132,6 +133,10 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
       <div className="flex-shrink-0 text-right min-w-[100px]">
         {isError ? (
           <p className="text-sm font-medium text-destructive whitespace-nowrap">{getOperationText()}失败</p>
+        ) : isRetrying ? (
+          <p className="text-sm font-medium text-amber-500 whitespace-nowrap">
+            正在重试 ({task.retryAttempt || 1}/{task.retryMaxAttempts || 3})
+          </p>
         ) : isPending ? (
           <p className="text-sm font-medium text-muted-foreground whitespace-nowrap">
             {isBatchOperation ? '准备中...' : '等待中...'}
@@ -146,7 +151,16 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
           </p>
         )}
         <p className="text-xs text-muted-foreground whitespace-nowrap">
-          {isError ? '点击关闭' : isPending ? (isBatchOperation ? '正在处理' : '排队等待可用线程') : isBatchOperation ? '处理中...' : formatSpeed(task.speed)}
+          {isError
+            ? '点击关闭'
+            : isRetrying
+              ? (task.retryError || '网络错误，自动重试中...')
+              : isPending
+                ? (isBatchOperation ? '正在处理' : '排队等待可用线程')
+                : isBatchOperation
+                  ? '处理中...'
+                  : formatSpeed(task.speed)
+          }
         </p>
       </div>
 
@@ -154,13 +168,19 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
       <div className="w-20 flex-shrink-0">
         <div className="flex items-center justify-end gap-2">
           <span className="text-sm font-medium w-10 text-right">
-            {isError ? '!' : isPending ? '-' : `${progress}%`}
+            {isError ? '!' : isRetrying ? <RotateCcw className="w-3 h-3 inline animate-spin" /> : isPending ? '-' : `${progress}%`}
           </span>
           <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
             <motion.div
               className={cn(
                 "h-full rounded-full transition-all",
-                isError ? "bg-destructive" : isPending ? "bg-muted-foreground/50" : "bg-primary"
+                isError
+                  ? "bg-destructive"
+                  : isRetrying
+                    ? "bg-amber-500"
+                    : isPending
+                      ? "bg-muted-foreground/50"
+                      : "bg-primary"
               )}
               initial={{ width: 0 }}
               animate={{ width: isPending ? '100%' : `${progress}%` }}
@@ -172,7 +192,7 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
 
       {/* 操作按钮 */}
       <div className="flex items-center gap-1">
-        {task.status === 'running' && onPause && (
+        {(task.status === 'running' || isRetrying) && onPause && (
           <button
             onClick={() => onPause(task.id)}
             className="p-1.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
@@ -190,7 +210,7 @@ export function TaskItem({ task, onCancel, onPause, onResume }: TaskItemProps) {
             <Play className="w-4 h-4" />
           </button>
         )}
-        {task.status === 'running' && (
+        {(task.status === 'running' || isRetrying) && (
           <button
             onClick={() => onCancel(task.id)}
             className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive transition-colors"

@@ -296,6 +296,79 @@ export const transferLogger = {
   uploadSkippingParts(key: string, partNumbers: number[]): void {
     log('info', `Skipping completed parts: ${partNumbers.join(', ')}`, { key })
   },
+
+  // ==================== 重试机制相关日志 ====================
+
+  /**
+   * 重试计划
+   */
+  retryScheduled(
+    operation: string,
+    attempt: number,
+    delayMs: number,
+    errorMessage: string,
+    partNumber?: number,
+    chunkIndex?: number
+  ): void {
+    const identifier = partNumber !== undefined
+      ? `Part ${partNumber}`
+      : chunkIndex !== undefined
+        ? `Chunk ${chunkIndex}`
+        : operation
+
+    log('warn', `${identifier} retry scheduled`, {
+      operation,
+      attempt,
+      delay: `${(delayMs / 1000).toFixed(1)}s`,
+      error: errorMessage,
+    })
+  },
+
+  /**
+   * 重试成功
+   */
+  retrySucceeded(
+    operation: string,
+    attempt: number,
+    partNumber?: number,
+    chunkIndex?: number
+  ): void {
+    const identifier = partNumber !== undefined
+      ? `Part ${partNumber}`
+      : chunkIndex !== undefined
+        ? `Chunk ${chunkIndex}`
+        : operation
+
+    log('info', `${identifier} retry succeeded`, {
+      operation,
+      attempt,
+    })
+  },
+
+  /**
+   * 重试失败（达到最大次数或不可重试）
+   */
+  retryFailed(
+    operation: string,
+    errorMessage: string,
+    attempts: number,
+    reason: 'max-attempts' | 'non-retryable',
+    partNumber?: number,
+    chunkIndex?: number
+  ): void {
+    const identifier = partNumber !== undefined
+      ? `Part ${partNumber}`
+      : chunkIndex !== undefined
+        ? `Chunk ${chunkIndex}`
+        : operation
+
+    log('error', `${identifier} retry failed`, {
+      operation,
+      error: errorMessage,
+      attempts,
+      reason,
+    })
+  },
 }
 
 /**

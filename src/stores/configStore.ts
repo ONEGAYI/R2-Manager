@@ -6,6 +6,7 @@ import {
   DEFAULT_UPLOAD_CHUNK_STEP,
   DEFAULT_DOWNLOAD_CHUNK_STEP,
 } from '@/types/chunk'
+import { DEFAULT_RETRY_SETTINGS } from '@/types/retry'
 
 // 默认配置值（单一数据源，方便维护）
 export const DEFAULT_CONFIG = {
@@ -17,6 +18,10 @@ export const DEFAULT_CONFIG = {
   uploadChunkStep: DEFAULT_UPLOAD_CHUNK_STEP,
   downloadChunkStep: DEFAULT_DOWNLOAD_CHUNK_STEP,
   defaultDownloadPath: '',
+  // 重试配置
+  retryMaxAttempts: DEFAULT_RETRY_SETTINGS.retryMaxAttempts,
+  retryBaseDelay: DEFAULT_RETRY_SETTINGS.retryBaseDelay,
+  retryMaxDelay: DEFAULT_RETRY_SETTINGS.retryMaxDelay,
 }
 
 interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
@@ -30,6 +35,11 @@ interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
 
   // 下载设置
   defaultDownloadPath: string
+
+  // 重试设置
+  retryMaxAttempts: number
+  retryBaseDelay: number
+  retryMaxDelay: number
 
   // R2 凭证操作
   setCredentials: (creds: Partial<R2Credentials>) => void
@@ -46,6 +56,7 @@ interface ConfigState extends AppConfig, R2Credentials, ConnectionStatus {
   setConcurrencySettings: (settings: { maxUploadThreads?: number; maxDownloadThreads?: number }) => void
   setDownloadPath: (path: string) => void
   setChunkStepSettings: (settings: { uploadChunkStep?: number; downloadChunkStep?: number }) => void
+  setRetrySettings: (settings: { retryMaxAttempts?: number; retryBaseDelay?: number; retryMaxDelay?: number }) => void
 
   // 重置默认值（保留凭证）
   resetToDefaults: () => void
@@ -70,6 +81,9 @@ type PersistedConfigState = {
   uploadChunkStep: number
   downloadChunkStep: number
   defaultDownloadPath: string
+  retryMaxAttempts: number
+  retryBaseDelay: number
+  retryMaxDelay: number
 }
 
 export const useConfigStore = create<ConfigState>()(
@@ -112,6 +126,7 @@ export const useConfigStore = create<ConfigState>()(
       setConcurrencySettings: (settings) => set((state) => ({ ...state, ...settings })),
       setDownloadPath: (defaultDownloadPath) => set({ defaultDownloadPath }),
       setChunkStepSettings: (settings) => set((state) => ({ ...state, ...settings })),
+      setRetrySettings: (settings) => set((state) => ({ ...state, ...settings })),
 
       // 重置默认值（保留凭证）
       resetToDefaults: () =>
@@ -138,6 +153,9 @@ export const useConfigStore = create<ConfigState>()(
         uploadChunkStep: state.uploadChunkStep,
         downloadChunkStep: state.downloadChunkStep,
         defaultDownloadPath: state.defaultDownloadPath,
+        retryMaxAttempts: state.retryMaxAttempts,
+        retryBaseDelay: state.retryBaseDelay,
+        retryMaxDelay: state.retryMaxDelay,
       }),
     }
   )

@@ -12,7 +12,9 @@ import {
   S3_MAX_PART_COUNT,
 } from '@/types/chunk'
 import type { ThreadPoolClient } from '@/types/threadPool'
+import type { RetryConfig, RetryContext } from '@/types/retry'
 import { transferLogger } from '@/lib/transferLogger'
+import { withRetry, getRetryConfig } from '@/lib/retryHelper'
 
 const API_BASE = 'http://localhost:3001/api'
 
@@ -404,9 +406,57 @@ export class ChunkedUploader {
   }
 
   /**
-   * 上传单个分块
+   * 上传单个分块（带重试）
    */
   private async uploadPart(part: ChunkUploadInfo): Promise<void> {
+    const retryConfig = this.getRetryConfig()
+
+    // 创建重试上下文
+    const context: RetryContext = {
+      operation: 'upload',
+      attempt: 0,
+      maxAttempts: retryConfig.retryMaxAttempts,
+      partNumber: part.partNumber,
+    }
+
+    // 创建 AbortController 用于暂停/取消
+    const abortController = new AbortController()
+
+    // 监听暂停/取消状态
+    const checkPaused = () => this.paused
+    const checkAborted = () => this.aborted
+
+    try {
+      await withRetry(
+        () => this.uploadPartOnce(part),
+        {
+          config: retryConfig,
+          context,
+          signal: abortController.signal,
+          isPaused: checkPaused,
+          isAborted: checkAborted,
+        }
+      )
+
+      // 重试成功
+      if (context.attempt > 0) {
+        transferLogger.retrySucceeded('upload', context.attempt, part.partNumber)
+      }
+    } catch (error) {
+      // 如果是暂停/取消导致的错误，直接抛出
+      if (this.paused || this.aborted) {
+        throw error
+      }
+
+      // 重试失败，抛出错误
+      throw error
+    }
+  }
+
+  /**
+   * 上传单个分块（单次尝试）
+   */
+  private async uploadPartOnce(part: ChunkUploadInfo): Promise<void> {
     if (this.aborted || this.paused) {
       throw new Error(this.paused ? 'Upload paused' : 'Upload aborted')
     }
@@ -477,14 +527,18 @@ export class ChunkedUploader {
             reject(new Error(`Part ${part.partNumber} parse error: ${error}`))
           }
         } else {
-          reject(new Error(`Part ${part.partNumber} failed: ${xhr.statusText}`))
+          // 返回 HTTP 错误，包含状态码（用于重试判断）
+          const errorMsg = `HTTP ${xhr.status} ${xhr.statusText}`
+          transferLogger.uploadPartFailed(part.partNumber, errorMsg)
+          reject(new Error(errorMsg))
         }
       }
 
       xhr.onerror = () => {
         this.activeXhrs.delete(part.partNumber)
-        transferLogger.uploadPartFailed(part.partNumber, xhr.statusText)
-        reject(new Error(`Part ${part.partNumber} network error`))
+        const errorMsg = 'network error'
+        transferLogger.uploadPartFailed(part.partNumber, errorMsg)
+        reject(new Error(errorMsg))
       }
 
       xhr.onabort = () => {
@@ -503,6 +557,13 @@ export class ChunkedUploader {
 
       xhr.send(slice)
     })
+  }
+
+  /**
+   * 获取重试配置
+   */
+  private getRetryConfig(): RetryConfig {
+    return getRetryConfig()
   }
 
   /**
