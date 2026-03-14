@@ -144,8 +144,16 @@ export class ChunkedDownloader {
 
       for (const [index, { blob, loadedBytes }] of cachedChunks) {
         const expectedSize = this.chunks[index].end - this.chunks[index].start + 1
+        // 使用实际 blob 大小和记录的 loadedBytes 中的较小值，防止数据不一致
+        const actualLoadedBytes = Math.min(loadedBytes, blob.size, expectedSize)
 
-        if (loadedBytes >= expectedSize) {
+        if (actualLoadedBytes <= 0) {
+          // 无效数据，跳过
+          console.warn(`[Resume] Chunk ${index} has invalid data, skipping`)
+          continue
+        }
+
+        if (actualLoadedBytes >= expectedSize) {
           // 完整分块：直接使用
           const buffer = await blob.arrayBuffer()
           this.results.set(index, buffer)
@@ -156,9 +164,9 @@ export class ChunkedDownloader {
           // 部分分块：保存部分数据，后续续传
           const buffer = await blob.arrayBuffer()
           this.partialData.set(index, new Uint8Array(buffer))
-          this.chunks[index].loadedBytes = loadedBytes
+          this.chunks[index].loadedBytes = actualLoadedBytes
           this.chunks[index].completed = false
-          console.log(`[Resume] Loaded partial chunk ${index}, ${loadedBytes} / ${expectedSize} bytes`)
+          console.log(`[Resume] Loaded partial chunk ${index}, ${actualLoadedBytes} / ${expectedSize} bytes`)
         }
       }
 
@@ -444,9 +452,21 @@ export class ChunkedDownloader {
 
     // 计算实际下载范围（支持断点续传）
     const existingPartial = this.partialData.get(chunk.index)
-    const resumeOffset = existingPartial ? this.chunks[chunk.index].loadedBytes : 0
-    const actualStart = chunk.start + resumeOffset
+    let resumeOffset = existingPartial ? this.chunks[chunk.index].loadedBytes : 0
     const expectedSize = chunk.end - chunk.start + 1
+
+    // 边界检查：确保 resumeOffset 不超过分块大小
+    // 这可以防止多次暂停恢复后 loadedBytes 累积错误导致 "offset is out of boundry" 错误
+    if (resumeOffset > expectedSize) {
+      console.warn(
+        `[Download] Chunk ${chunk.index} has invalid resumeOffset: ${resumeOffset} > ${expectedSize}, resetting`
+      )
+      resumeOffset = 0
+      this.chunks[chunk.index].loadedBytes = 0
+      this.partialData.delete(chunk.index)
+    }
+
+    const actualStart = chunk.start + resumeOffset
     const remainingSize = expectedSize - resumeOffset
 
     if (remainingSize <= 0) {

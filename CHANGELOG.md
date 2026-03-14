@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.11] - 2026-03-14
+
+### Fixed
+- **下载断点续传边界检查** - 修复多次暂停恢复后 "offset is out of boundry" 错误
+  - `src/services/chunkedDownload.ts` - 添加 `resumeOffset` 边界检查
+  - 恢复时使用 `Math.min(loadedBytes, blob.size, expectedSize)` 确保数据一致性
+  - 无效偏移量自动重置并重新下载该分块
+- **重试机制浏览器兼容性** - 修复 `ReferenceError: require is not defined`
+  - `src/lib/retryHelper.ts` - 将 `require()` 改为 ES 模块静态导入
+
+---
+
 ## [0.9.10] - 2026-03-14
 
 ### Added

@@ -7,6 +7,7 @@
 import type { RetryConfig, RetryContext } from '@/types/retry'
 import { DEFAULT_RETRY_SETTINGS } from '@/types/retry'
 import { transferLogger } from '@/lib/transferLogger'
+import { useConfigStore } from '@/stores/configStore'
 
 /**
  * 可重试的 HTTP 状态码
@@ -204,9 +205,6 @@ export async function withRetry<T>(
  * 从 configStore 获取重试配置
  */
 export function getRetryConfig(): RetryConfig {
-  // 动态导入避免循环依赖
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { useConfigStore } = require('@/stores/configStore')
   const state = useConfigStore.getState()
 
   return {
