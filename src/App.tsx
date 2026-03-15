@@ -23,6 +23,7 @@ import { useTransferStore } from '@/stores/transferStore'
 import { api } from '@/services/api'
 import { fileService } from '@/services/fileService'
 import { initLogger } from '@/lib/logger'
+import { confirm } from '@/lib/confirm'
 import { ChunkedDownloader, shouldUseChunkedDownload } from '@/services/chunkedDownload'
 import { ChunkedUploader, shouldUseChunkedUpload, type ResumeOptions } from '@/services/chunkedUpload'
 import type { ChunkedUploaderState, ChunkedDownloaderState, ResumeDownloadOptions } from '@/types/chunk'
@@ -329,7 +330,8 @@ function App() {
         ? `确定要删除文件夹 "${key}" 及其所有内容吗？\n此操作不可恢复。`
         : `确定要删除 "${key.split('/').pop()}" 吗？`
 
-      if (!window.confirm(confirmMsg)) return
+      const confirmed = await confirm(confirmMsg, '确认删除')
+      if (!confirmed) return
 
       try {
         setDeleting(true)
@@ -507,7 +509,8 @@ function App() {
       .map((name) => '• ' + name)
       .join('\n')}${keys.length > 5 ? `\n... 还有 ${keys.length - 5} 项` : ''}`
 
-    if (!window.confirm(confirmMsg)) return
+    const confirmed = await confirm(confirmMsg, '确认批量删除')
+    if (!confirmed) return
 
     try {
       setDeleting(true)

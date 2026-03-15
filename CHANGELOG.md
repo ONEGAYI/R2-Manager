@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.1] - 2026-03-15 | 桌面端确认对话框修复
+
+### Fixed
+- **桌面端确认对话框失效** - 修复 `window.confirm` 在 Tauri WebView2 中总是返回 `true` 的问题
+  - 批量删除/单文件删除时会直接删除，不再等待用户确认
+  - 重启服务/重置设置等操作同样受影响
+  - **解决方案**：在 Tauri 环境中使用原生对话框（`@tauri-apps/plugin-dialog` 的 `ask` 函数）
+
+### Technical
+- `src/lib/confirm.ts`: 新增跨平台确认对话框工具函数
+  - Tauri 环境：使用原生系统对话框（异步，带警告图标）
+  - 浏览器环境：继续使用 `window.confirm`（同步）
+- `src/App.tsx`: `handleDelete` / `handleBatchDelete` 使用新的 `confirm` 函数
+- `src/components/config/SettingsDialog.tsx`: 清除配置/重启服务/重置设置使用新的 `confirm` 函数
+
+---
+
 ## [1.2.0] - 2026-03-15 | 文件夹上传功能
 
 ### Added

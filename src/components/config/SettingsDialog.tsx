@@ -15,6 +15,7 @@ import { useConfigStore, DEFAULT_CONFIG } from '@/stores/configStore'
 import { api } from '@/services/api'
 import { cn } from '@/lib/cn'
 import { isTauri } from '@/lib/isTauri'
+import { confirm } from '@/lib/confirm'
 import {
   MIN_UPLOAD_CHUNK_STEP,
   MAX_UPLOAD_CHUNK_STEP,
@@ -169,8 +170,8 @@ export function SettingsDialog({
     onOpenChange(false)
   }
 
-  const handleClear = () => {
-    if (confirm('确定要清除所有配置吗？这将退出登录。')) {
+  const handleClear = async () => {
+    if (await confirm('确定要清除所有配置吗？这将退出登录。', '清除配置')) {
       clearCredentials()
       onOpenChange(false)
       window.location.reload()
@@ -178,7 +179,7 @@ export function SettingsDialog({
   }
 
   const handleRestart = async () => {
-    if (!confirm('确定要重启前后端服务吗？\n这将暂时中断当前连接。')) {
+    if (!(await confirm('确定要重启前后端服务吗？\n这将暂时中断当前连接。', '重启服务'))) {
       return
     }
 
@@ -596,8 +597,8 @@ export function SettingsDialog({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => {
-            if (confirm('确定要重置所有设置为默认值吗？\n\n这将重置：主题、视图模式、并发数、分块大小、下载路径等。\nR2 凭证将被保留。')) {
+          onClick={async () => {
+            if (await confirm('确定要重置所有设置为默认值吗？\n\n这将重置：主题、视图模式、并发数、分块大小、下载路径等。\nR2 凭证将被保留。', '重置设置')) {
               resetToDefaults()
               // 同步本地状态
               setConcurrencyData({
