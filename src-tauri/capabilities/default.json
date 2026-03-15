@@ -11,14 +11,27 @@
     "fs:allow-exists",
     "fs:allow-mkdir",
     "fs:allow-remove",
+    "fs:allow-read-dir",
     {
       "identifier": "fs:scope",
       "allow": [
         { "path": "$DOCUMENT/**" },
         { "path": "$DOCUMENT/" },
-        { "path": "$DOCUMENT" }
+        { "path": "$DOCUMENT" },
+        { "path": "$HOME/**" },
+        { "path": "$HOME/" },
+        { "path": "$DESKTOP/**" },
+        { "path": "$DESKTOP/" },
+        { "path": "$DOWNLOAD/**" },
+        { "path": "$DOWNLOAD/" }
       ]
     },
+    "dialog:default",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-ask",
+    "dialog:allow-confirm",
     "shell:allow-spawn",
     "shell:allow-execute",
     {

@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0] - 2026-03-15 | 文件夹上传功能
+
+### Added
+- **文件夹上传** - 支持上传整个文件夹，保留目录结构
+  - 新增"选择整个文件夹"按钮（FolderUp 图标）
+  - **Tauri 桌面端**：使用原生文件夹选择对话框 + 递归读取
+  - **浏览器端**：File System Access API (Chrome 86+) + webkitdirectory 降级
+  - **拖拽上传**：支持拖拽文件夹到上传区域
+  - **空目录支持**：自动创建空目录（通过 0 字节占位文件）
+
+### Fixed
+- **批量删除确认对话框文件名显示** - 修复文件夹名称显示为空的问题
+  - 文件夹 key 以 `/` 结尾时，`split('/').pop()` 返回空字符串
+  - 改用相对路径计算，正确显示文件夹名称
+
+### Technical
+- `src/lib/tauriFolderPicker.ts`: Tauri 文件夹选择和递归读取模块
+- `src/lib/browserFolderPicker.ts`: 浏览器端文件夹选择（File System Access API + webkitGetAsEntry）
+- `src/components/file/FileUploader.tsx`:
+  - 新增 `onFolderSelect` 回调
+  - 新增文件夹选择按钮（区分 Tauri/浏览器环境）
+  - 拖拽上传支持文件夹检测
+- `src/App.tsx`:
+  - 新增 `handleFolderSelect` 处理文件夹上传
+  - 先创建空目录，再处理文件上传
+  - 使用 `webkitRelativePath` 保持目录结构
+- `src-tauri/capabilities/default.json`:
+  - 新增 `fs:allow-read-dir`、`dialog:*` 权限
+  - 路径作用域扩展至 `$HOME`、`$DESKTOP`、`$DOWNLOAD`
+
+---
+
 ## [1.1.4] - 2026-03-15 | 跨桶复制冲突对话框修复
 
 ### Fixed

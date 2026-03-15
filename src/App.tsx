@@ -496,7 +496,16 @@ function App() {
     if (!selectedBucket || selectedCount === 0) return
 
     const keys = Array.from(selectedKeys)
-    const confirmMsg = `确定要删除选中的 ${selectedCount} 项吗？\n\n${keys.slice(0, 5).map((k) => '• ' + k.split('/').pop()).join('\n')}${keys.length > 5 ? `\n... 还有 ${keys.length - 5} 项` : ''}`
+    // 获取显示名称：去掉当前前缀，文件夹去掉末尾的 /
+    const displayNames = keys.map((k) => {
+      const relativePath = k.startsWith(currentPrefix) ? k.slice(currentPrefix.length) : k
+      // 文件夹以 / 结尾，去掉末尾的 / 获取名称
+      return relativePath.endsWith('/') ? relativePath.slice(0, -1) : relativePath
+    })
+    const confirmMsg = `确定要删除选中的 ${selectedCount} 项吗？\n\n${displayNames
+      .slice(0, 5)
+      .map((name) => '• ' + name)
+      .join('\n')}${keys.length > 5 ? `\n... 还有 ${keys.length - 5} 项` : ''}`
 
     if (!window.confirm(confirmMsg)) return
 
@@ -596,10 +605,13 @@ function App() {
     // 创建上传任务并添加到传输中心
     const newTaskIds: string[] = []
     for (const file of files) {
+      const relativePath: string | undefined = file.webkitRelativePath
+      const uploadPath = relativePath || file.name
+
       const taskId = addTask({
         direction: 'upload',
         fileName: file.name,
-        filePath: prefix + file.name,
+        filePath: prefix + uploadPath,
         bucketName: bucket,
         fileSize: file.size,
         file,
@@ -609,7 +621,9 @@ function App() {
 
     // 使用并发限制上传
     runWithConcurrency(files, maxUploadThreads, async (file) => {
-      const key = prefix + file.name
+      const relativePath: string | undefined = file.webkitRelativePath
+      const uploadPath = relativePath || file.name
+      const key = prefix + uploadPath
       const taskId = newTaskIds[files.indexOf(file)]
 
       // 更新状态为上传中
@@ -777,12 +791,17 @@ function App() {
     const bucket = selectedBucket
     const prefix = currentPrefix
 
-    // 构造检测项
-    const items = files.map(f => ({
-      sourceKey: '',
-      destinationKey: prefix + f.name,
-      isFolder: false
-    }))
+    // 构造检测项（支持文件夹上传：使用 webkitRelativePath）
+    const items = files.map(f => {
+      // 如果有相对路径（文件夹上传），使用相对路径作为 key；否则使用文件名
+      const relativePath: string | undefined = f.webkitRelativePath
+      const key = relativePath || f.name
+      return {
+        sourceKey: '',
+        destinationKey: prefix + key,
+        isFolder: false
+      }
+    })
 
     try {
       // 检测冲突
@@ -816,6 +835,78 @@ function App() {
       startUpload(files, prefix)
     }
   }, [selectedBucket, currentPrefix, startUpload])
+
+  // 处理文件夹上传（Tauri 环境，包含空目录）
+  const handleFolderSelect = useCallback(async (files: File[], emptyDirs: string[]) => {
+    console.log('handleFolderSelect called with files:', files.length, 'emptyDirs:', emptyDirs.length)
+    if (!selectedBucket) {
+      console.error('No bucket selected')
+      return
+    }
+
+    const bucket = selectedBucket
+    const prefix = currentPrefix
+
+    // 先创建空目录
+    if (emptyDirs.length > 0) {
+      console.log('[Folder Upload] Creating', emptyDirs.length, 'empty directories')
+      for (const dirPath of emptyDirs) {
+        try {
+          const fullPath = prefix + dirPath
+          console.log('[Folder Upload] Creating empty folder:', fullPath)
+          await fileService.createFolder(bucket, fullPath)
+          console.log('[Folder Upload] Created empty folder:', fullPath)
+        } catch (err) {
+          console.warn('[Folder Upload] Failed to create empty folder:', dirPath, err)
+        }
+      }
+    }
+
+    // 然后处理文件上传（复用 handleUpload 的逻辑）
+    if (files.length > 0) {
+      // 构造检测项
+      const items = files.map(f => {
+        const relativePath: string | undefined = f.webkitRelativePath
+        const key = relativePath || f.name
+        return {
+          sourceKey: '',
+          destinationKey: prefix + key,
+          isFolder: false
+        }
+      })
+
+      try {
+        const result = await api.detectConflicts(bucket, items)
+
+        if (result.conflicts.length > 0) {
+          setUploadConflict({
+            open: true,
+            conflicts: result.conflicts.map(c => ({
+              ...c,
+              sourceInfo: c.sourceInfo ? {
+                size: c.sourceInfo.size,
+                lastModified: String(c.sourceInfo.lastModified)
+              } : undefined,
+              targetInfo: c.targetInfo ? {
+                size: c.targetInfo.size,
+                lastModified: String(c.targetInfo.lastModified)
+              } : undefined
+            })),
+            pendingFiles: files,
+            pendingPrefix: prefix
+          })
+        } else {
+          startUpload(files, prefix)
+        }
+      } catch (error) {
+        console.error('Conflict detection failed, proceeding with upload:', error)
+        startUpload(files, prefix)
+      }
+    }
+
+    // 刷新文件列表
+    refreshFiles(bucket, prefix)
+  }, [selectedBucket, currentPrefix, startUpload, refreshFiles])
 
   // 处理暂停上传
   const handlePauseUpload = useCallback(async (taskId: string) => {
@@ -1906,6 +1997,7 @@ function App() {
                   uploads={uploads}
                   onDrop={handleUpload}
                   onRemove={handleUploadRemove}
+                  onFolderSelect={handleFolderSelect}
                 />
               </motion.div>
             </motion.div>
