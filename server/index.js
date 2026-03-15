@@ -1089,27 +1089,64 @@ app.post('/api/buckets/:bucketName/objects/detect-conflicts', async (req, res) =
   try {
     const targetBucket = destinationBucket || bucketName
 
-    // 构建检测项列表
-    const checkItems = items.map(item => ({
-      sourceKey: item.sourceKey,
-      targetKey: item.destinationKey,
-    }))
+    // 展开所有文件夹，获取完整的文件列表
+    const allCheckItems = [] // { sourceKey, targetKey, isFolder }
+
+    for (const item of items) {
+      if (item.isFolder || item.sourceKey.endsWith('/')) {
+        // 文件夹：列出源桶中该文件夹下的所有文件
+        let continuationToken = undefined
+        const sourcePrefix = item.sourceKey
+        const destPrefix = item.destinationKey
+
+        do {
+          const listCommand = new ListObjectsV2Command({
+            Bucket: bucketName,
+            Prefix: sourcePrefix,
+            ContinuationToken: continuationToken,
+            MaxKeys: 1000,
+          })
+          const response = await r2Client.send(listCommand)
+
+          if (response.Contents) {
+            for (const obj of response.Contents) {
+              // 计算目标 key：将源前缀替换为目标前缀
+              const relativePath = obj.Key.substring(sourcePrefix.length)
+              const targetKey = destPrefix + relativePath
+              allCheckItems.push({
+                sourceKey: obj.Key,
+                targetKey,
+                isFolder: obj.Key.endsWith('/')
+              })
+            }
+          }
+          continuationToken = response.NextContinuationToken
+        } while (continuationToken)
+      } else {
+        // 单文件：直接添加
+        allCheckItems.push({
+          sourceKey: item.sourceKey,
+          targetKey: item.destinationKey,
+          isFolder: false
+        })
+      }
+    }
 
     // 批量检测冲突（获取目标文件元数据）
-    const { conflicts: conflictKeys, existingObjects } = await detectConflictsWithListObjects(bucketName, targetBucket, checkItems)
+    const { conflicts: conflictKeys, existingObjects } = await detectConflictsWithListObjects(bucketName, targetBucket, allCheckItems)
 
-    // 并行获取源文件元数据（只获取有冲突的项）
-    const conflictItems = items.filter(item => conflictKeys.has(item.destinationKey))
-    const sourceKeys = conflictItems.map(item => item.sourceKey)
+    // 获取所有有冲突的源文件信息
+    const conflictCheckItems = allCheckItems.filter(item => conflictKeys.has(item.targetKey))
+    const sourceKeys = [...new Set(conflictCheckItems.map(item => item.sourceKey))]
     const sourceObjects = await getSourceObjectsInfo(bucketName, sourceKeys)
 
-    // 构建冲突结果（直接从已获取的元数据中读取）
-    const conflicts = conflictItems.map(item => ({
+    // 构建冲突结果
+    const conflicts = conflictCheckItems.map(item => ({
       sourceKey: item.sourceKey,
-      targetKey: item.destinationKey,
+      targetKey: item.targetKey,
       isFolder: item.isFolder,
       sourceInfo: sourceObjects.get(item.sourceKey) || null,
-      targetInfo: existingObjects.get(item.destinationKey) || null,
+      targetInfo: existingObjects.get(item.targetKey) || null,
     }))
 
     res.json({

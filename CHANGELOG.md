@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.4] - 2026-03-15 | 跨桶复制冲突对话框修复
+
+### Fixed
+- **跨桶复制/移动时未显示 ConflictDialog** - 修复选择"逐个询问"策略时直接跳过冲突的问题
+  - `handleMove` / `handleCopy` 函数新增 `conflictStrategy` 参数
+  - 当策略为 `'ask'` 时先检测冲突，有冲突则弹出对话框
+  - 无冲突或检测失败时降级为 `'skip'` 策略继续操作
+- **冲突检测 API 支持文件夹展开** - 修复文件夹复制/移动时冲突检测不完整的问题
+  - 使用 `ListObjectsV2Command` 列出文件夹下所有文件
+  - 正确映射源文件到目标位置
+
+### Technical
+- `server/index.js`:
+  - `/detect-conflicts` API 新增文件夹展开逻辑
+  - 支持分页遍历文件夹内容（MaxKeys=1000）
+- `src/App.tsx`:
+  - `handleMove(sourceKey, destinationKey, destinationBucket?, conflictStrategy?)`
+  - `handleCopy(sourceKey, destinationKey, destinationBucket?, conflictStrategy?)`
+
+---
+
 ## [1.1.3] - 2026-03-15 | 冲突检测性能优化
 
 ### Improved

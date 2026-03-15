@@ -1165,8 +1165,47 @@ function App() {
   }, [selectedBucket, currentPrefix, refreshFiles])
 
   // 处理移动
-  const handleMove = useCallback(async (sourceKey: string, destinationKey: string, destinationBucket?: string): Promise<boolean> => {
+  const handleMove = useCallback(async (sourceKey: string, destinationKey: string, destinationBucket?: string, conflictStrategy: ConflictStrategy = 'skip'): Promise<boolean> => {
     if (!selectedBucket) return false
+
+    // 如果选择"逐个询问"策略，先检测冲突
+    if (conflictStrategy === 'ask') {
+      const isFolder = sourceKey.endsWith('/')
+      try {
+        const result = await api.detectConflicts(selectedBucket, [{
+          sourceKey,
+          destinationKey,
+          isFolder
+        }], destinationBucket)
+        if (result.conflicts.length > 0) {
+          // 有冲突，显示冲突对话框
+          setMoveCopyConflict({
+            open: true,
+            conflicts: result.conflicts.map(c => ({
+              ...c,
+              sourceInfo: c.sourceInfo ? {
+                size: c.sourceInfo.size,
+                lastModified: String(c.sourceInfo.lastModified)
+              } : undefined,
+              targetInfo: c.targetInfo ? {
+                size: c.targetInfo.size,
+                lastModified: String(c.targetInfo.lastModified)
+              } : undefined
+            })),
+            pendingItems: [{ sourceKey, destinationKey, isFolder }],
+            destinationBucket,
+            mode: 'move'
+          })
+          return false // 返回 false，不关闭 MoveCopyDialog
+        }
+        // 无冲突，使用 skip 策略继续
+        conflictStrategy = 'skip'
+      } catch (error) {
+        console.error('Conflict detection failed:', error)
+        // 冲突检测失败时，使用 skip 策略继续（降级处理）
+        conflictStrategy = 'skip'
+      }
+    }
 
     const name = sourceKey.split('/').filter(Boolean).pop() || ''
 
@@ -1207,8 +1246,47 @@ function App() {
   }, [selectedBucket, currentPrefix, refreshFiles])
 
   // 处理复制
-  const handleCopy = useCallback(async (sourceKey: string, destinationKey: string, destinationBucket?: string): Promise<boolean> => {
+  const handleCopy = useCallback(async (sourceKey: string, destinationKey: string, destinationBucket?: string, conflictStrategy: ConflictStrategy = 'skip'): Promise<boolean> => {
     if (!selectedBucket) return false
+
+    // 如果选择"逐个询问"策略，先检测冲突
+    if (conflictStrategy === 'ask') {
+      const isFolder = sourceKey.endsWith('/')
+      try {
+        const result = await api.detectConflicts(selectedBucket, [{
+          sourceKey,
+          destinationKey,
+          isFolder
+        }], destinationBucket)
+        if (result.conflicts.length > 0) {
+          // 有冲突，显示冲突对话框
+          setMoveCopyConflict({
+            open: true,
+            conflicts: result.conflicts.map(c => ({
+              ...c,
+              sourceInfo: c.sourceInfo ? {
+                size: c.sourceInfo.size,
+                lastModified: String(c.sourceInfo.lastModified)
+              } : undefined,
+              targetInfo: c.targetInfo ? {
+                size: c.targetInfo.size,
+                lastModified: String(c.targetInfo.lastModified)
+              } : undefined
+            })),
+            pendingItems: [{ sourceKey, destinationKey, isFolder }],
+            destinationBucket,
+            mode: 'copy'
+          })
+          return false // 返回 false，不关闭 MoveCopyDialog
+        }
+        // 无冲突，使用 skip 策略继续
+        conflictStrategy = 'skip'
+      } catch (error) {
+        console.error('Conflict detection failed:', error)
+        // 冲突检测失败时，使用 skip 策略继续（降级处理）
+        conflictStrategy = 'skip'
+      }
+    }
 
     const name = sourceKey.split('/').filter(Boolean).pop() || ''
 
