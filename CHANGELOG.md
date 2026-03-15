@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.3] - 2026-03-15 | 冲突检测性能优化
+
+### Improved
+- **"逐个询问"冲突检测性能优化** - 提升 26 倍速度
+  - **优化前**: 28 个冲突耗时 ~17.7 秒（串行 HeadObject 调用）
+  - **优化后**: 28 个冲突耗时 ~0.67 秒（并行 ListObjects 方案）
+  - 原理：将 2N 次串行 HeadObject 调用改为 2 次并行 ListObjects 调用
+  - 新增 `getSourceObjectsInfo()` 函数，批量获取源文件元数据
+  - 修改 `detectConflictsWithListObjects()` 返回完整对象元数据（size, lastModified）
+  - 修改 `/detect-conflicts` API 完全使用 ListObjects，移除所有 HeadObject 调用
+
+### Technical
+- `server/index.js`:
+  - `detectConflictsWithListObjects()` 返回值从 `Set<string>` 改为 `Map<string, {size, lastModified}>`
+  - 新增 `getSourceObjectsInfo()` 并行获取源文件列表
+  - `buildExistingKeysByPrefix()` 兼容 Map 和 Set 输入
+- `src/App.tsx`:
+  - `handleBatchCopy` / `handleBatchMove` 添加性能日志
+
+---
+
 ## [1.1.2] - 2026-03-15 | 冲突对话框交互重构
 
 ### Added

@@ -150,10 +150,10 @@ app.delete('/api/buckets/:bucketName', async (req, res) => {
  * @param {string} bucket - 源桶名
  * @param {string} targetBucket - 目标桶名
  * @param {Array<{sourceKey: string, targetKey: string}>} items - 待检测项
- * @returns {Promise<Set<string>>} 冲突的 targetKey 集合
+ * @returns {Promise<{conflicts: Set<string>, existingObjects: Map<string, {size: number, lastModified: Date}>}>}
  */
 async function detectConflictsWithListObjects(bucket, targetBucket, items) {
-  if (items.length === 0) return { conflicts: new Set(), existingKeys: new Set() }
+  if (items.length === 0) return { conflicts: new Set(), existingObjects: new Map() }
 
   // 1. 收集所有需要检查的目标目录（按前缀分组）
   const targetPrefixes = new Set()
@@ -164,8 +164,8 @@ async function detectConflictsWithListObjects(bucket, targetBucket, items) {
     targetPrefixes.add(prefix)
   }
 
-  // 2. 批量获取各目录的文件列表（并行请求）
-  const existingKeys = new Set()
+  // 2. 批量获取各目录的文件列表（并行请求），包含完整元数据
+  const existingObjects = new Map() // key -> { size, lastModified }
   await Promise.all(
     Array.from(targetPrefixes).map(async (prefix) => {
       let continuationToken = undefined
@@ -180,7 +180,10 @@ async function detectConflictsWithListObjects(bucket, targetBucket, items) {
 
         if (response.Contents) {
           for (const obj of response.Contents) {
-            existingKeys.add(obj.Key)
+            existingObjects.set(obj.Key, {
+              size: obj.Size,
+              lastModified: obj.LastModified,
+            })
           }
         }
         continuationToken = response.NextContinuationToken
@@ -191,24 +194,73 @@ async function detectConflictsWithListObjects(bucket, targetBucket, items) {
   // 3. 本地检测冲突
   const conflicts = new Set()
   for (const item of items) {
-    if (existingKeys.has(item.targetKey)) {
+    if (existingObjects.has(item.targetKey)) {
       conflicts.add(item.targetKey)
     }
   }
 
-  return { conflicts, existingKeys }
+  return { conflicts, existingObjects }
 }
 
 /**
- * 将 existingKeys Set 转换为按目录前缀分组的 Map
+ * 批量获取源文件元数据（ListObjects 方案）
+ * @param {string} bucket - 源桶名
+ * @param {Array<string>} sourceKeys - 源文件 key 列表
+ * @returns {Promise<Map<string, {size: number, lastModified: Date}>>}
+ */
+async function getSourceObjectsInfo(bucket, sourceKeys) {
+  if (sourceKeys.length === 0) return new Map()
+
+  // 收集所有源文件目录前缀
+  const sourcePrefixes = new Set()
+  for (const key of sourceKeys) {
+    const lastSlash = key.lastIndexOf('/')
+    const prefix = lastSlash >= 0 ? key.substring(0, lastSlash + 1) : ''
+    sourcePrefixes.add(prefix)
+  }
+
+  // 并行获取各目录的文件列表
+  const sourceObjects = new Map()
+  await Promise.all(
+    Array.from(sourcePrefixes).map(async (prefix) => {
+      let continuationToken = undefined
+      do {
+        const listCommand = new ListObjectsV2Command({
+          Bucket: bucket,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+          MaxKeys: 1000,
+        })
+        const response = await r2Client.send(listCommand)
+
+        if (response.Contents) {
+          for (const obj of response.Contents) {
+            sourceObjects.set(obj.Key, {
+              size: obj.Size,
+              lastModified: obj.LastModified,
+            })
+          }
+        }
+        continuationToken = response.NextContinuationToken
+      } while (continuationToken)
+    })
+  )
+
+  return sourceObjects
+}
+
+/**
+ * 将 existingObjects Map 转换为按目录前缀分组的 Map
  * 用于 generateUniqueNamesBatch 复用已获取的文件列表数据
  *
- * @param {Set<string>} existingKeys - 扁平的 key 集合
+ * @param {Map<string, {size: number, lastModified: Date}>} existingObjects - key -> 元数据的 Map
  * @returns {Map<string, Set<string>>} 按目录前缀分组的 Map
  */
-function buildExistingKeysByPrefix(existingKeys) {
+function buildExistingKeysByPrefix(existingObjects) {
   const result = new Map()
-  for (const key of existingKeys) {
+  // 支持 Map 和 Set 两种输入类型
+  const keys = existingObjects instanceof Map ? existingObjects.keys() : existingObjects
+  for (const key of keys) {
     const lastSlash = key.lastIndexOf('/')
     const prefix = lastSlash >= 0 ? key.substring(0, lastSlash + 1) : ''
     if (!result.has(prefix)) {
@@ -1043,52 +1095,22 @@ app.post('/api/buckets/:bucketName/objects/detect-conflicts', async (req, res) =
       targetKey: item.destinationKey,
     }))
 
-    // 批量检测冲突
-    const { conflicts: conflictKeys } = await detectConflictsWithListObjects(bucketName, targetBucket, checkItems)
+    // 批量检测冲突（获取目标文件元数据）
+    const { conflicts: conflictKeys, existingObjects } = await detectConflictsWithListObjects(bucketName, targetBucket, checkItems)
 
-    // 获取冲突项的详细信息
-    const conflicts = []
-    for (const item of items) {
-      if (conflictKeys.has(item.destinationKey)) {
-        // 获取源文件信息
-        let sourceInfo = null
-        try {
-          const headSource = await r2Client.send(new HeadObjectCommand({
-            Bucket: bucketName,
-            Key: item.sourceKey,
-          }))
-          sourceInfo = {
-            size: headSource.ContentLength,
-            lastModified: headSource.LastModified,
-          }
-        } catch (e) {
-          // 源文件信息获取失败，忽略
-        }
+    // 并行获取源文件元数据（只获取有冲突的项）
+    const conflictItems = items.filter(item => conflictKeys.has(item.destinationKey))
+    const sourceKeys = conflictItems.map(item => item.sourceKey)
+    const sourceObjects = await getSourceObjectsInfo(bucketName, sourceKeys)
 
-        // 获取目标文件信息
-        let targetInfo = null
-        try {
-          const headTarget = await r2Client.send(new HeadObjectCommand({
-            Bucket: targetBucket,
-            Key: item.destinationKey,
-          }))
-          targetInfo = {
-            size: headTarget.ContentLength,
-            lastModified: headTarget.LastModified,
-          }
-        } catch (e) {
-          // 目标文件信息获取失败，忽略
-        }
-
-        conflicts.push({
-          sourceKey: item.sourceKey,
-          targetKey: item.destinationKey,
-          isFolder: item.isFolder,
-          sourceInfo,
-          targetInfo,
-        })
-      }
-    }
+    // 构建冲突结果（直接从已获取的元数据中读取）
+    const conflicts = conflictItems.map(item => ({
+      sourceKey: item.sourceKey,
+      targetKey: item.destinationKey,
+      isFolder: item.isFolder,
+      sourceInfo: sourceObjects.get(item.sourceKey) || null,
+      targetInfo: existingObjects.get(item.destinationKey) || null,
+    }))
 
     res.json({
       success: true,
@@ -1316,7 +1338,7 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
     sendSSELog(res, isSSERequest, `[BatchCopy] 开始顶层单文件冲突检测: ${filesNeedConflictCheck.length} 个文件`)
     const conflictResult = await detectConflictsWithListObjects(bucketName, targetBucket, filesNeedConflictCheck)
     topLevelConflicts = conflictResult.conflicts
-    topLevelExistingKeys = buildExistingKeysByPrefix(conflictResult.existingKeys)
+    topLevelExistingKeys = buildExistingKeysByPrefix(conflictResult.existingObjects)
     sendSSELog(res, isSSERequest, `[BatchCopy] 顶层单文件冲突检测完成: ${topLevelConflicts.size} 个冲突`)
 
     // 收集需要重命名的冲突项（根据逐项策略或全局策略）
@@ -1444,7 +1466,7 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
         if (conflictStrategy !== 'overwrite') {
           const conflictResult = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
           conflictKeys = conflictResult.conflicts
-          subExistingKeys = buildExistingKeysByPrefix(conflictResult.existingKeys)
+          subExistingKeys = buildExistingKeysByPrefix(conflictResult.existingObjects)
 
           // 如果是 rename 策略，生成重命名映射
           if (conflictStrategy === 'rename' && conflictKeys.size > 0) {
@@ -1721,7 +1743,7 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
     sendSSELog(res, isSSERequest, `[BatchMove] 开始顶层单文件冲突检测: ${filesNeedConflictCheck.length} 个文件`)
     const conflictResult = await detectConflictsWithListObjects(bucketName, targetBucket, filesNeedConflictCheck)
     topLevelConflicts = conflictResult.conflicts
-    topLevelExistingKeys = buildExistingKeysByPrefix(conflictResult.existingKeys)
+    topLevelExistingKeys = buildExistingKeysByPrefix(conflictResult.existingObjects)
     sendSSELog(res, isSSERequest, `[BatchMove] 顶层单文件冲突检测完成: ${topLevelConflicts.size} 个冲突`)
 
     // 收集需要重命名的冲突项（根据逐项策略或全局策略）
@@ -1881,7 +1903,7 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
         if (conflictStrategy !== 'overwrite') {
           const conflictResult = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
           conflictKeys = conflictResult.conflicts
-          subExistingKeys = buildExistingKeysByPrefix(conflictResult.existingKeys)
+          subExistingKeys = buildExistingKeysByPrefix(conflictResult.existingObjects)
 
           // 如果是 rename 策略，生成重命名映射
           if (conflictStrategy === 'rename' && conflictKeys.size > 0) {

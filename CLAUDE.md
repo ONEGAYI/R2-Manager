@@ -244,7 +244,6 @@ node bump-version.js 1.2.3   # 直接设置为 1.2.3
 ### Phase 5: 待修复
 - [ ] 批量删除多层级时出错（需进一步验证）
 - [ ] 跨桶复制时没有跳出 ConflictDialog, 而是直接全部跳过策略
-- [ ] 批量复制选择逐个后，ConflictDialog 跳出时间慢
 
 ---
 
