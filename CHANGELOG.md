@@ -2,6 +2,50 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2] - 2026-03-15 | 冲突对话框交互重构
+
+### Added
+- **拖选框选功能** - 支持鼠标拖动框选多个冲突项
+  - 绘制选择框可视化反馈（半透明蓝色边框）
+  - 框选时自动包含文件夹的所有子孙项
+  - 智能判断：超半数已选中则取消，否则选中
+- **Shift 范围选择** - 支持 Shift+点击进行范围选择
+  - 从上一个选中项（锚点）到当前项的范围
+  - 智能反选逻辑（根据范围内选中比例决定操作）
+  - 锚点显示视觉高亮（蓝色内环）
+- **层级展示** - 使用缩进+连接线展示文件夹层级关系
+  - 自动根据文件路径计算父子关系
+  - 垂直连接线 + 水平分支线
+  - 选中文件夹自动选中所有子孙项
+- **Tooltip 信息展示** - 源文件/目标文件详情改为悬停显示
+  - 显示完整路径、大小、修改时间
+  - 减少默认 UI 复杂度
+- **Tooltip 组件** - 新增 shadcn/ui Tooltip 组件
+  - `src/components/ui/tooltip.tsx` - 基于 @radix-ui/react-tooltip
+- **交互设计文档** - 记录冲突对话框的交互规范
+  - `docs/superpowers/specs/2026-03-15-conflict-dialog-interaction-design.md`
+
+### Improved
+- **ConflictDialog 交互重构** - 从"逐项下拉选择"改为"先选后设"批量模式
+  - 移除每行的 Select 下拉选择框
+  - 操作栏改为：全选复选框 + 选中计数 + 策略按钮
+  - 策略按钮（跳过/保留两者/覆盖）仅对选中项生效
+  - 策略显示改为彩色标签形式
+  - 默认所有项策略为"跳过"
+
+### Technical
+- **新增类型定义**：
+  - `ConflictItemWithHierarchy` - 带层级信息的冲突项（id、depth、parentId、childIds）
+  - `SelectionBox` - 拖选框坐标接口
+- **新增函数**：
+  - `buildHierarchy()` - 根据文件路径分析父子关系
+  - `getItemWithAllDescendants()` - 递归获取节点及所有子孙节点
+  - `handleMouseDown/Move/Up` - 拖选事件处理与碰撞检测
+- **新增依赖**：`@radix-ui/react-tooltip@^1.2.8`
+- **碰撞检测算法**：矩形相交检测（itemRect vs selectionBox）
+
+---
+
 ## [1.1.1] - 2026-03-15 | 批量操作性能优化
 
 ### Improved

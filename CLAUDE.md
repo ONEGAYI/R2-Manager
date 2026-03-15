@@ -15,6 +15,7 @@
 ## 工具使用和提示
 
 - 多运用 `mcp__serena` 的 LSP 功能（支持 ts 和 js 语言）
+- CHANGELOG 较长，版本更新时首次应该只读取前 50 行
 
 ## 架构
 
@@ -60,7 +61,7 @@ cloudflare-r2-manager/
 │   │       ├── 📁 files/             # 文件类型图标 (~58 个 SVG)
 │   │       └── 📁 folders/           # 文件夹图标 (~32 个 SVG)
 │   ├── 📁 components/
-│   │   ├── 📁 ui/                    # shadcn/ui 基础组件 (button, checkbox, dialog, slider, toast...)
+│   │   ├── 📁 ui/                    # shadcn/ui 基础组件 (button, checkbox, dialog, slider, toast, tooltip...)
 │   │   ├── 📁 layout/                # 布局组件 (Sidebar, Header, MainLayout)
 │   │   ├── 📁 config/                # 配置组件 (ConfigPage, SettingsDialog)
 │   │   ├── 📁 bucket/                # 桶操作组件 (CreateBucket, DeleteBucketDialog)
@@ -71,7 +72,7 @@ cloudflare-r2-manager/
 │   │   │   ├── FilePreview.tsx       # 文件预览组件
 │   │   │   ├── MoveCopyDialog.tsx    # 移动/复制对话框（支持批量模式）
 │   │   │   ├── RenameDialog.tsx      # 重命名对话框
-│   │   │   └── ConflictDialog.tsx    # 冲突处理对话框
+│   │   │   └── ConflictDialog.tsx    # 冲突处理对话框（支持拖选/层级展示）
 │   │   ├── 📁 transfer/              # 传输中心组件
 │   │   │   ├── TransferPage.tsx      # 传输中心主页面
 │   │   │   ├── TransferTabs.tsx      # 标签页（上传/下载/批量操作/完成）
@@ -139,6 +140,10 @@ cloudflare-r2-manager/
 ├── CLAUDE.md                         # 本文档
 ├── CHANGELOG.md                      # 变更日志
 ├── Build.md                          # 桌面端打包指南
+├── 📁 docs/                          # 文档目录
+│   ├── 📁 completed_plans/           # 已完成的计划
+│   ├── 📁 DBG/                       # 调试文档
+│   └── 📁 superpowers/               # Superpowers 相关文档
 ├── 📁 scripts/                       # 脚本目录
 │   ├── kill.bat                      # 终止端口占用进程
 │   ├── get-etag.js                   # 获取文件 ETag (S3 分块上传校验)
@@ -201,11 +206,14 @@ node bump-version.js 1.2.3   # 直接设置为 1.2.3
 - **批量删除**: 支持递归删除文件夹内容
 - **批量下载**: 获取所有选中项的预签名 URL 并触发下载
 - **批量移动/复制**: 集成到传输中心，支持实时进度反馈
-- **冲突处理策略**:
-  - 跳过冲突 - 保留目标文件，不覆盖
-  - 覆盖 - 直接覆盖目标文件
-  - 保留两者 - 自动重命名（file.txt → file (1).txt）
-  - 应用到所有 - 批量操作时可一键应用相同策略
+- **冲突处理对话框** (v1.1.2 重构):
+  - **先选后设**: 点击/拖选文件 → 点击策略按钮批量设置
+  - **多选交互**: 点击切换、Shift 范围选择、Ctrl 增选、拖动框选
+  - **层级展示**: 缩进+连接线展示文件夹层级，选中文件夹自动包含子孙项
+  - **策略类型**:
+    - 跳过冲突 - 保留目标文件，不覆盖
+    - 覆盖 - 直接覆盖目标文件
+    - 保留两者 - 自动重命名（file.txt → file (1).txt）
 
 ### 文件操作菜单
 
@@ -228,7 +236,6 @@ node bump-version.js 1.2.3   # 直接设置为 1.2.3
 - [ ] 动效优化
 - [ ] 键盘快捷键
 - [ ] 性能优化
-- [ ] ConflictDialog 交互优化: 使用拖选而非选框
 
 ### Phase 4: 高级功能
 - [ ] 文件搜索
@@ -236,6 +243,8 @@ node bump-version.js 1.2.3   # 直接设置为 1.2.3
 
 ### Phase 5: 待修复
 - [ ] 批量删除多层级时出错（需进一步验证）
+- [ ] 跨桶复制时没有跳出 ConflictDialog, 而是直接全部跳过策略
+- [ ] 批量复制选择逐个后，ConflictDialog 跳出时间慢
 
 ---
 
