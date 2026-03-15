@@ -7,6 +7,7 @@ import { FileGrid } from '@/components/file/FileGrid'
 import { FileUploader } from '@/components/file/FileUploader'
 import { RenameDialog } from '@/components/file/RenameDialog'
 import { MoveCopyDialog } from '@/components/file/MoveCopyDialog'
+import { ConflictDialog, type ConflictItem } from '@/components/file/ConflictDialog'
 import { Empty } from '@/components/common/Empty'
 import { Loading } from '@/components/common/Loading'
 import { ConfigPage } from '@/components/config/ConfigPage'
@@ -61,6 +62,14 @@ async function runWithConcurrency<T>(
   await Promise.all(executing)
 }
 
+// 生成新文件名（用于 rename 策略）
+function generateNewName(filename: string): string {
+  const lastDot = filename.lastIndexOf('.')
+  const name = lastDot > 0 ? filename.slice(0, lastDot) : filename
+  const ext = lastDot > 0 ? filename.slice(lastDot) : ''
+  return `${name} (1)${ext}`
+}
+
 function App() {
   const [showUploader, setShowUploader] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -87,6 +96,23 @@ function App() {
     batchMode?: boolean
     batchItems?: Array<{ key: string; name: string; isFolder: boolean }>
   }>({ open: false, mode: 'move', item: null })
+
+  // 上传冲突对话框状态
+  const [uploadConflict, setUploadConflict] = useState<{
+    open: boolean
+    conflicts: ConflictItem[]
+    pendingFiles: File[]
+    pendingPrefix: string
+  }>({ open: false, conflicts: [], pendingFiles: [], pendingPrefix: '' })
+
+  // 移动/复制冲突对话框状态
+  const [moveCopyConflict, setMoveCopyConflict] = useState<{
+    open: boolean
+    conflicts: ConflictItem[]
+    pendingItems: Array<{ sourceKey: string; destinationKey: string; isFolder: boolean }>
+    destinationBucket?: string
+    mode: 'move' | 'copy'
+  }>({ open: false, conflicts: [], pendingItems: [], mode: 'move' })
 
   // 打开移动/复制对话框（单文件模式)
   const openMoveCopyDialog = useCallback((key: string, name: string, isFolder: boolean, mode: 'move' | 'copy') => {
@@ -561,16 +587,11 @@ function App() {
     })
   }, [selectedBucket, selectedKeys, selectedCount, maxDownloadThreads, objects, addTask, updateTask, getTaskById, moveToHistory])
 
-  // 处理文件上传
-  const handleUpload = useCallback((files: File[]) => {
-    console.log('handleUpload called with files:', files.length, 'bucket:', selectedBucket)
-    if (!selectedBucket) {
-      console.error('No bucket selected')
-      return
-    }
+  // 实际执行上传的函数
+  const startUpload = useCallback((files: File[], prefix: string) => {
+    if (!selectedBucket) return
 
     const bucket = selectedBucket
-    const prefix = currentPrefix
 
     // 创建上传任务并添加到传输中心
     const newTaskIds: string[] = []
@@ -708,7 +729,93 @@ function App() {
         }
       }
     })
-  }, [selectedBucket, currentPrefix, refreshFiles, maxUploadThreads, addTask, updateTask, moveToHistory, getTaskById])
+  }, [selectedBucket, refreshFiles, maxUploadThreads, addTask, updateTask, moveToHistory, getTaskById, uploadChunkStep])
+
+  // 处理上传冲突解决
+  const handleUploadConflictResolution = useCallback((
+    resolutions: Array<{ item: ConflictItem; resolution: 'overwrite' | 'skip' | 'rename' }>
+  ) => {
+    const { pendingFiles, pendingPrefix } = uploadConflict
+
+    // 创建文件名到处理策略的映射
+    const resolutionMap = new Map(
+      resolutions.map(r => [r.item.targetKey.split('/').pop() || '', r.resolution])
+    )
+
+    let filesToUpload: File[] = []
+
+    for (const file of pendingFiles) {
+      const resolution = resolutionMap.get(file.name)
+
+      if (resolution === 'skip') {
+        // 跳过此文件
+        continue
+      } else if (resolution === 'rename') {
+        // 重命名文件
+        const newName = generateNewName(file.name)
+        filesToUpload.push(new File([file], newName, { type: file.type }))
+      } else {
+        // overwrite 或 无冲突，直接上传
+        filesToUpload.push(file)
+      }
+    }
+
+    if (filesToUpload.length > 0) {
+      startUpload(filesToUpload, pendingPrefix)
+    }
+    setUploadConflict({ open: false, conflicts: [], pendingFiles: [], pendingPrefix: '' })
+  }, [uploadConflict, startUpload])
+
+  // 处理文件上传（带冲突检测）
+  const handleUpload = useCallback(async (files: File[]) => {
+    console.log('handleUpload called with files:', files.length, 'bucket:', selectedBucket)
+    if (!selectedBucket) {
+      console.error('No bucket selected')
+      return
+    }
+
+    const bucket = selectedBucket
+    const prefix = currentPrefix
+
+    // 构造检测项
+    const items = files.map(f => ({
+      sourceKey: '',
+      destinationKey: prefix + f.name,
+      isFolder: false
+    }))
+
+    try {
+      // 检测冲突
+      const result = await api.detectConflicts(bucket, items)
+
+      if (result.conflicts.length > 0) {
+        // 有冲突，显示冲突对话框
+        setUploadConflict({
+          open: true,
+          conflicts: result.conflicts.map(c => ({
+            ...c,
+            sourceInfo: c.sourceInfo ? {
+              size: c.sourceInfo.size,
+              lastModified: String(c.sourceInfo.lastModified)
+            } : undefined,
+            targetInfo: c.targetInfo ? {
+              size: c.targetInfo.size,
+              lastModified: String(c.targetInfo.lastModified)
+            } : undefined
+          })),
+          pendingFiles: files,
+          pendingPrefix: prefix
+        })
+      } else {
+        // 无冲突，直接上传
+        startUpload(files, prefix)
+      }
+    } catch (error) {
+      console.error('Conflict detection failed, proceeding with upload:', error)
+      // 冲突检测失败时，仍然继续上传（降级处理）
+      startUpload(files, prefix)
+    }
+  }, [selectedBucket, currentPrefix, startUpload])
 
   // 处理暂停上传
   const handlePauseUpload = useCallback(async (taskId: string) => {
@@ -1149,6 +1256,40 @@ function App() {
   ): Promise<boolean> => {
     if (!selectedBucket) return false
 
+    // 如果选择"逐个询问"策略，先检测冲突
+    if (conflictStrategy === 'ask') {
+      try {
+        const result = await api.detectConflicts(selectedBucket, items, destinationBucket)
+        if (result.conflicts.length > 0) {
+          // 有冲突，显示冲突对话框，不关闭 MoveCopyDialog
+          setMoveCopyConflict({
+            open: true,
+            conflicts: result.conflicts.map(c => ({
+              ...c,
+              sourceInfo: c.sourceInfo ? {
+                size: c.sourceInfo.size,
+                lastModified: String(c.sourceInfo.lastModified)
+              } : undefined,
+              targetInfo: c.targetInfo ? {
+                size: c.targetInfo.size,
+                lastModified: String(c.targetInfo.lastModified)
+              } : undefined
+            })),
+            pendingItems: items,
+            destinationBucket,
+            mode: 'move'
+          })
+          return false // 返回 false，不关闭 MoveCopyDialog
+        }
+        // 无冲突，使用 skip 策略继续
+        conflictStrategy = 'skip'
+      } catch (error) {
+        console.error('Conflict detection failed:', error)
+        // 冲突检测失败时，使用 skip 策略继续（降级处理）
+        conflictStrategy = 'skip'
+      }
+    }
+
     const { addBatchOperationTask, updateBatchProgress, updateBatchItemStatus, moveToHistory } = useTransferStore.getState()
 
     // 初始化子项列表
@@ -1180,6 +1321,7 @@ function App() {
           destinationBucket,
           conflictStrategy,
           maxBatchOperationThreads,
+          undefined,  // itemStrategies - 使用全局策略
           (progressData) => {
             // 更新进度
             if (progressData.type === 'progress' && progressData.current && progressData.total) {
@@ -1256,6 +1398,40 @@ function App() {
   }>, destinationBucket?: string, conflictStrategy: ConflictStrategy = 'skip'): Promise<boolean> => {
     if (!selectedBucket) return false
 
+    // 如果选择"逐个询问"策略，先检测冲突
+    if (conflictStrategy === 'ask') {
+      try {
+        const result = await api.detectConflicts(selectedBucket, items, destinationBucket)
+        if (result.conflicts.length > 0) {
+          // 有冲突，显示冲突对话框
+          setMoveCopyConflict({
+            open: true,
+            conflicts: result.conflicts.map(c => ({
+              ...c,
+              sourceInfo: c.sourceInfo ? {
+                size: c.sourceInfo.size,
+                lastModified: String(c.sourceInfo.lastModified)
+              } : undefined,
+              targetInfo: c.targetInfo ? {
+                size: c.targetInfo.size,
+                lastModified: String(c.targetInfo.lastModified)
+              } : undefined
+            })),
+            pendingItems: items,
+            destinationBucket,
+            mode: 'copy'
+          })
+          return false // 返回 false，不关闭 MoveCopyDialog
+        }
+        // 无冲突，使用 skip 策略继续
+        conflictStrategy = 'skip'
+      } catch (error) {
+        console.error('Conflict detection failed:', error)
+        // 冲突检测失败时，使用 skip 策略继续（降级处理）
+        conflictStrategy = 'skip'
+      }
+    }
+
     const { addBatchOperationTask, updateBatchProgress, updateBatchItemStatus, moveToHistory } = useTransferStore.getState()
 
     // 创建传输任务（包含子项列表）
@@ -1286,6 +1462,7 @@ function App() {
           destinationBucket,
           conflictStrategy,
           maxBatchOperationThreads,
+          undefined,  // itemStrategies - 使用全局策略
           (progressData) => {
             // 更新进度
             if (progressData.type === 'progress' && progressData.current && progressData.total) {
@@ -1358,6 +1535,147 @@ function App() {
     // 立即返回 true，让对话框关闭
     return true
   }, [selectedBucket, currentPrefix, refreshFiles, clearSelection])
+
+  // 处理移动/复制冲突解决
+  const handleMoveCopyConflictResolution = useCallback(async (
+    resolutions: Array<{ item: ConflictItem; resolution: 'overwrite' | 'skip' | 'rename' }>
+  ) => {
+    console.log('[handleMoveCopyConflictResolution] called with resolutions:', resolutions.length)
+    const { pendingItems, destinationBucket, mode } = moveCopyConflict
+    console.log('[handleMoveCopyConflictResolution] pendingItems:', pendingItems.length, 'selectedBucket:', !!selectedBucket)
+    if (!selectedBucket) return
+
+    // 构建逐项策略映射
+    const itemStrategies: Record<string, 'skip' | 'overwrite' | 'rename'> = {}
+    for (const r of resolutions) {
+      itemStrategies[r.item.targetKey] = r.resolution
+    }
+
+    console.log('[handleMoveCopyConflictResolution] resolutions:', resolutions.map(r => ({ targetKey: r.item.targetKey, resolution: r.resolution })))
+    console.log('[handleMoveCopyConflictResolution] pendingItems destinationKeys:', pendingItems.map(i => i.destinationKey))
+    console.log('[handleMoveCopyConflictResolution] itemStrategies:', itemStrategies)
+
+    // 过滤掉 skip 的项目（不需要传递给后端）
+    const itemsToProcess = pendingItems.filter(item =>
+      itemStrategies[item.destinationKey] !== 'skip'
+    )
+
+    console.log('[handleMoveCopyConflictResolution] itemsToProcess:', itemsToProcess.length)
+
+    if (itemsToProcess.length === 0) {
+      // 所有项目都被跳过
+      setMoveCopyConflict({ open: false, conflicts: [], pendingItems: [], mode: 'move' })
+      setMoveCopyDialog((prev) => ({ ...prev, open: false }))
+      return
+    }
+
+    const { addBatchOperationTask, updateBatchProgress, updateBatchItemStatus, moveToHistory } = useTransferStore.getState()
+
+    // 初始化子项列表
+    const batchItems = itemsToProcess.map(item => ({
+      sourceKey: item.sourceKey,
+      destinationKey: item.destinationKey,
+      status: 'pending' as const
+    }))
+
+    // 创建传输任务（只创建一个任务）
+    const taskId = addBatchOperationTask({
+      direction: mode,
+      fileName: `${itemsToProcess.length} 个项目`,
+      bucketName: selectedBucket,
+      sourceKey: itemsToProcess[0]?.sourceKey || '',
+      destinationKey: itemsToProcess[0]?.destinationKey || '',
+      destinationBucket,
+      totalItems: itemsToProcess.length,
+      items: batchItems,
+    })
+
+    // 关闭冲突对话框和移动/复制对话框
+    setMoveCopyConflict({ open: false, conflicts: [], pendingItems: [], mode: 'move' })
+    setMoveCopyDialog((prev) => ({ ...prev, open: false }))
+
+    // 异步执行操作（不阻塞）
+    ;(async () => {
+      try {
+        const { maxBatchOperationThreads } = useConfigStore.getState()
+
+        // 根据模式调用对应的 API，传递逐项策略
+        const apiCall = mode === 'move'
+          ? api.batchMoveWithProgress.bind(api)
+          : api.batchCopyWithProgress.bind(api)
+
+        const result = await apiCall(
+          selectedBucket,
+          itemsToProcess,
+          destinationBucket,
+          'overwrite',  // 默认策略（会被 itemStrategies 覆盖）
+          maxBatchOperationThreads,
+          itemStrategies,  // 传递逐项策略
+          (progressData) => {
+            // 更新进度
+            if (progressData.type === 'progress' && progressData.current && progressData.total) {
+              const progress = Math.round((progressData.current / progressData.total) * 100)
+              updateBatchProgress(taskId, progressData.current, progress, progressData.currentSourceKey)
+            }
+            // 处理单项完成事件
+            if (progressData.type === 'itemComplete' && progressData.sourceKey) {
+              if (progressData.status === 'success') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'completed')
+              } else if (progressData.status === 'skipped') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'skipped', progressData.skipReason)
+              } else if (progressData.status === 'renamed') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'completed', `重命名为 ${progressData.renamedTo}`)
+              } else if (progressData.status === 'error') {
+                updateBatchItemStatus(taskId, progressData.sourceKey, 'error', progressData.error)
+              }
+            }
+          }
+        )
+
+        // 更新最终进度
+        const completedItems = ('totalMoved' in result ? result.totalMoved : result.totalCopied)
+          + (result.totalSkipped || 0) + (result.totalRenamed || 0)
+        updateBatchProgress(taskId, completedItems, 100)
+
+        // 更新子项最终状态
+        result.results.forEach(r => {
+          if (r.status === 'success') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'completed')
+          } else if (r.status === 'skipped') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'skipped', r.skipReason)
+          } else if (r.status === 'renamed') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'completed', `重命名为 ${r.renamedTo}`)
+          } else if (r.status === 'error') {
+            updateBatchItemStatus(taskId, r.sourceKey, 'error', r.error)
+          }
+        })
+
+        // 移动到历史记录
+        const task = useTransferStore.getState().getTaskById(taskId)
+        if (task) {
+          const parts = []
+          if (result.totalSkipped > 0) parts.push(`${result.totalSkipped} 项跳过`)
+          if (result.totalRenamed > 0) parts.push(`${result.totalRenamed} 项重命名`)
+          if (result.totalErrors > 0) parts.push(`${result.totalErrors} 项失败`)
+          if (parts.length > 0) {
+            moveToHistory(task, result.totalErrors > 0 ? 'error' : 'completed', parts.join(', '))
+          } else {
+            moveToHistory(task, 'completed')
+          }
+        }
+
+        // 刷新文件列表
+        refreshFiles(selectedBucket, currentPrefix)
+        clearSelection()
+      } catch (error) {
+        console.error('Batch operation failed:', error)
+        const task = useTransferStore.getState().getTaskById(taskId)
+        if (task) {
+          moveToHistory(task, 'error', (error as Error).message)
+        }
+      }
+    })()
+  }, [moveCopyConflict, selectedBucket, currentPrefix, refreshFiles, clearSelection])
 
   // 未配置凭证或强制显示配置页面时显示配置页面
   if (!hasValidCredentials || forceShowConfig) {
@@ -1610,6 +1928,24 @@ function App() {
         onLoadFolders={loadTargetFolders}
         batchMode={moveCopyDialog.batchMode}
         batchItems={moveCopyDialog.batchItems}
+      />
+
+      {/* 上传冲突对话框 */}
+      <ConflictDialog
+        open={uploadConflict.open}
+        onOpenChange={(open) => setUploadConflict((prev) => ({ ...prev, open }))}
+        conflicts={uploadConflict.conflicts}
+        onConfirm={handleUploadConflictResolution}
+        mode="copy"
+      />
+
+      {/* 移动/复制冲突对话框 */}
+      <ConflictDialog
+        open={moveCopyConflict.open}
+        onOpenChange={(open) => setMoveCopyConflict((prev) => ({ ...prev, open }))}
+        conflicts={moveCopyConflict.conflicts}
+        onConfirm={handleMoveCopyConflictResolution}
+        mode={moveCopyConflict.mode}
       />
 
       {/* 批量操作进度气泡 */}

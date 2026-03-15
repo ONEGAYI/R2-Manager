@@ -361,6 +361,7 @@ class ApiService {
     destinationBucket?: string,
     conflictStrategy: ConflictStrategy = 'skip',
     maxConcurrency: number = 4,
+    itemStrategies?: Record<string, 'skip' | 'overwrite' | 'rename'>,
     onProgress?: (data: {
       type: 'progress' | 'complete' | 'error' | 'log' | 'itemComplete'
       current?: number
@@ -467,7 +468,7 @@ class ApiService {
 
       xhr.onerror = () => reject(new Error('Network error'))
 
-      xhr.send(JSON.stringify({ items, destinationBucket, conflictStrategy, maxConcurrency }))
+      xhr.send(JSON.stringify({ items, destinationBucket, conflictStrategy, itemStrategies, maxConcurrency }))
     })
   }
 
@@ -482,6 +483,7 @@ class ApiService {
     destinationBucket?: string,
     conflictStrategy: ConflictStrategy = 'skip',
     maxConcurrency: number = 4,
+    itemStrategies?: Record<string, 'skip' | 'overwrite' | 'rename'>,
     onProgress?: (data: {
       type: 'progress' | 'complete' | 'error' | 'log' | 'itemComplete'
       current?: number
@@ -582,7 +584,7 @@ class ApiService {
 
       xhr.onerror = () => reject(new Error('Network error'))
 
-      xhr.send(JSON.stringify({ items, destinationBucket, conflictStrategy, maxConcurrency }))
+      xhr.send(JSON.stringify({ items, destinationBucket, conflictStrategy, itemStrategies, maxConcurrency }))
     })
   }
 

@@ -2,7 +2,50 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.0.0] - 2026-03-14
+## [1.1.0] - 2026-03-15 | 逐项冲突策略支持
+
+### Added
+- **逐项冲突策略支持** - 每个冲突文件可独立选择处理方式
+  - `server/index.js` - 新增 `itemStrategies` 参数，支持逐项策略覆盖全局策略
+  - `server/index.js` - 新增 `getItemStrategy()` 函数获取单个项目策略
+  - `server/index.js` - 优化冲突检测：过滤掉策略为 skip/overwrite 的文件，减少不必要的检测
+  - `src/services/api.ts` - `batchCopyWithProgress()` 和 `batchMoveWithProgress()` 新增 `itemStrategies` 参数
+- **"逐个询问"冲突策略** - 新的默认策略，遇到冲突时逐个确认
+  - `src/components/file/MoveCopyDialog.tsx` - 新增 `ask` 策略选项，作为新的默认值
+  - 有冲突时弹出 ConflictDialog 让用户为每个文件选择处理方式
+- **上传冲突检测** - 上传前检测同名文件冲突
+  - `src/App.tsx` - 新增 `uploadConflict` 状态和 `handleUploadConflictResolution()` 处理函数
+  - 上传时有冲突显示 ConflictDialog，支持跳过/重命名/覆盖
+
+### Improved
+- **ConflictDialog 组件重构** - 从"全局策略"模式改为"逐项选择"模式
+  - 每个冲突项独立下拉选择处理策略（跳过/保留两者/覆盖）
+  - 新增"全部设为"快捷按钮（全部跳过/全部保留/全部覆盖）
+  - 策略统计显示（X 项跳过、X 项保留、X 项覆盖）
+  - 根据选择的策略显示不同的背景色高亮
+  - 使用 Select 组件替代原有的 Checkbox
+
+### Fixed
+- **批量操作"全部跳过"策略 bug 修复** - 修复使用"全部跳过"策略时所有文件都被错误跳过的问题
+  - 删除了 `processMoveItem` 函数中顶层冲突检测块内错误的 skip 处理代码
+  - 修复空文件夹移动时 skip 策略检查顺序错误
+
+### Technical
+- **逐项策略实现**：
+  - 前端构建 `itemStrategies` 映射：`{ destinationKey: 'skip' | 'overwrite' | 'rename' }`
+  - 后端 `getItemStrategy(key, globalStrategy, itemStrategiesMap)` 优先使用逐项策略
+  - 冲突检测前过滤：只检测策略为 rename 或 ask 的文件
+- **冲突处理流程**：
+  1. 用户选择"逐个询问"策略
+  2. 前端调用 `/detect-conflicts` API 检测冲突
+  3. 有冲突时显示 ConflictDialog
+  4. 用户为每个冲突选择策略
+  5. 构建 `itemStrategies` 映射传递给批量操作 API
+  6. 后端根据逐项策略处理每个文件
+
+---
+
+## [1.0.0] - 2026-03-14 | 冲突处理策略增强
 
 ### Added
 - **批量操作冲突处理策略增强** - 支持更多冲突解决方式
@@ -37,7 +80,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.15] - 2026-03-14
+## [0.9.15] - 2026-03-14 | 进度气泡悬停展开
 
 ### Added
 - **进度气泡 Hover 展开详情** - 悬停显示批量操作子项级别进度
@@ -56,7 +99,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.14] - 2026-03-14
+## [0.9.14] - 2026-03-14 | 批量操作进度气泡
 
 ### Added
 - **进度气泡组件** - 批量复制/移动操作时显示实时进度反馈
@@ -69,7 +112,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.13] - 2026-03-14
+## [0.9.13] - 2026-03-14 | 批量操作并发配置
 
 ### Added
 - **批量操作并发数配置** - 用户可自定义批量复制/移动的并发数
@@ -121,7 +164,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.12] - 2026-03-14
+## [0.9.12] - 2026-03-14 | 冲突检测性能优化
 
 ### Improved
 - **批量冲突检测性能优化** - 使用 ListObjects 替代逐个 HeadObject
@@ -143,7 +186,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.11] - 2026-03-14
+## [0.9.11] - 2026-03-14 | 下载断点续传修复
 
 ### Fixed
 - **下载断点续传边界检查** - 修复多次暂停恢复后 "offset is out of boundry" 错误
@@ -155,7 +198,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.10] - 2026-03-14
+## [0.9.10] - 2026-03-14 | 错误自动重试机制
 
 ### Added
 - **错误重试机制** - 网络错误和服务器临时不可用时自动重试
@@ -201,7 +244,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.9] - 2026-03-14
+## [0.9.9] - 2026-03-14 | 全局线程池管理
 
 ### Added
 - **全局线程池** - 上传和下载任务的全局并发资源管理
@@ -237,7 +280,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.8] - 2026-03-14
+## [0.9.8] - 2026-03-14 | 批量复制/移动功能
 
 ### Added
 - **批量复制/移动功能** - Phase 2 集成到传输中心
@@ -268,7 +311,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.7] - 2026-03-13
+## [0.9.7] - 2026-03-13 | 文件移动/复制/重命名
 
 ### Added
 - **文件复制/移动/重命名功能** - Phase 1 MVP 实现
@@ -302,7 +345,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.6] - 2026-03-13
+## [0.9.6] - 2026-03-13 | 文件图标自动识别
 
 ### Added
 - **文件图标自动识别** - 根据文件后缀名自动显示对应的 vscode-icons 图标
@@ -331,7 +374,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.5] - 2026-03-13
+## [0.9.5] - 2026-03-13 | 拖拽上传修复
 
 ### Fixed
 - **拖拽上传功能修复** - 修复拖拽文件到上传区域不生效的问题
@@ -341,7 +384,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.4] - 2026-03-13
+## [0.9.4] - 2026-03-13 | 下载断点续传
 
 ### Added
 - **下载断点续传** - 真正的断点续传，从暂停位置继续下载
@@ -387,7 +430,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.3] - 2026-03-13
+## [0.9.3] - 2026-03-13 | Sidecar进程管理修复
 
 ### Fixed
 - **Sidecar 进程管理修复** - 修复桌面端关闭窗口后后端进程残留的问题
@@ -409,7 +452,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.2] - 2026-03-12
+## [0.9.2] - 2026-03-12 | 上传暂停/恢复功能
 
 ### Added
 - **上传暂停/恢复功能** - 支持暂停分块上传并从断点恢复
@@ -436,7 +479,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.1] - 2026-03-12
+## [0.9.1] - 2026-03-12 | 面包屑导航优化
 
 ### Improved
 - **面包屑导航优化** - Win11 风格的路径折叠显示
@@ -477,7 +520,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.9.0] - 2026-03-12
+## [0.9.0] - 2026-03-12 | 多线程分块上传
 
 ### Added
 - **多线程分块上传功能** - Phase 1 基础实现
@@ -520,7 +563,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.8.2] - 2026-03-12
+## [0.8.2] - 2026-03-12 | 进度报告节流优化
 
 ### Improved
 - **下载进度报告节流优化** - 减少 UI 更新频率，降低 CPU 占用
@@ -536,7 +579,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.8.1] - 2026-03-12
+## [0.8.1] - 2026-03-12 | 排队状态图标
 
 ### Added
 - **传输任务排队状态图标** - `pending` 状态显示钟表+逆时针环形箭头图标
@@ -551,7 +594,7 @@ All notable changes to this project will be documented in this file.
   - 添加 20 秒超时保护机制
   - 加载期间禁用重复点击
 
-## [0.8.0] - 2026-03-12
+## [0.8.0] - 2026-03-12 | 多线程分块下载
 
 ### Fixed
 - **大文件上传限制** - 修复上传超过 100MB 文件时报 `413 PayloadTooLargeError`
@@ -591,7 +634,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.7.0] - 2026-03-11
+## [0.7.0] - 2026-03-11 | 传输中心功能
 
 ### Added
 - **传输中心功能** - 类似百度网盘的传输管理页面
@@ -632,7 +675,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.6.2] - 2026-03-11
+## [0.6.2] - 2026-03-11 | 桌面端配置持久化
 
 ### Added
 - **桌面端配置文件持久化** - 区分桌面端和浏览器端的配置存储方式
@@ -663,7 +706,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.6.1] - 2026-03-11
+## [0.6.1] - 2026-03-11 | Tauri v2 迁移
 
 ### Changed
 - **Tauri v2 迁移**
@@ -687,7 +730,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.6.0] - 2026-03-11
+## [0.6.0] - 2026-03-11 | Tauri桌面端打包
 
 ### Added
 - **Tauri 桌面端打包支持**
@@ -714,7 +757,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.5.0] - 2026-03-11
+## [0.5.0] - 2026-03-11 | 深色模式支持
 
 ### Added
 - **深色模式支持**
@@ -738,7 +781,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.4.0] - 2026-03-11
+## [0.4.0] - 2026-03-11 | 存储桶管理功能
 
 ### Added
 - **存储桶管理功能**
@@ -758,7 +801,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.3.0] - 2026-03-10
+## [0.3.0] - 2026-03-10 | 文件夹/并发控制
 
 ### Added
 - **新建文件夹功能**
@@ -800,7 +843,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.2.0] - 2026-03-10
+## [0.2.0] - 2026-03-10 | 后端代理服务器
 
 ### Added
 - **后端代理服务器** - Express.js 代理服务器解决 CORS 跨域问题
@@ -841,7 +884,7 @@ All notable changes to this project will be documented in this file.
 
 ---
 
-## [0.1.0] - 2026-03-10
+## [0.1.0] - 2026-03-10 | 项目脚手架搭建
 
 ### Added
 - **项目脚手架搭建**

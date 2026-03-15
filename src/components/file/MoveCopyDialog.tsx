@@ -78,7 +78,7 @@ export function MoveCopyDialog({
 }: MoveCopyDialogProps) {
   const [destinationPath, setDestinationPath] = useState('')
   const [destinationBucket, setDestinationBucket] = useState('')
-  const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>('skip')
+  const [conflictStrategy, setConflictStrategy] = useState<ConflictStrategy>('ask')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [isLoadingFolders, setIsLoadingFolders] = useState(false)
@@ -91,7 +91,7 @@ export function MoveCopyDialog({
     if (open) {
       setDestinationPath(currentPrefix)
       setDestinationBucket(sourceBucket)
-      setConflictStrategy('skip')
+      setConflictStrategy('ask')
       setError('')
     }
   }, [open, currentPrefix, sourceBucket])
@@ -487,6 +487,12 @@ export function MoveCopyDialog({
                     <div className="flex flex-col items-start">
                       <span>保留两者</span>
                       <span className="text-xs text-muted-foreground">自动重命名新文件 (如 file (1).txt)</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="ask">
+                    <div className="flex flex-col items-start">
+                      <span>逐个询问</span>
+                      <span className="text-xs text-muted-foreground">遇到冲突时逐个确认处理方式</span>
                     </div>
                   </SelectItem>
                 </SelectContent>

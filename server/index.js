@@ -1228,10 +1228,18 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
   }
 
   const { bucketName } = req.params
-  const { items, destinationBucket, conflictStrategy = 'skip', maxConcurrency = 4 } = req.body
+  const { items, destinationBucket, conflictStrategy = 'skip', itemStrategies, maxConcurrency = 4 } = req.body
 
   // 兼容旧的 overwrite 参数
   const overwrite = conflictStrategy === 'overwrite'
+
+  // 获取单个项目的策略（支持逐项策略覆盖全局策略）
+  function getItemStrategy(destinationKey, globalStrategy, itemStrategiesMap) {
+    if (itemStrategiesMap && itemStrategiesMap[destinationKey]) {
+      return itemStrategiesMap[destinationKey]
+    }
+    return globalStrategy
+  }
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: '请提供要复制的对象列表' })
@@ -1266,23 +1274,34 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
   let topLevelConflicts = new Set()
   let topLevelRenameMap = new Map()  // 冲突项的重命名映射
 
-  if (conflictStrategy !== 'overwrite' && topLevelSingleFiles.length > 0) {
-    sendSSELog(res, isSSERequest, `[BatchCopy] 开始顶层单文件冲突检测: ${topLevelSingleFiles.length} 个文件`)
-    topLevelConflicts = await detectConflictsWithListObjects(bucketName, targetBucket, topLevelSingleFiles)
+  // 过滤出需要检测冲突的文件（排除逐项策略为 skip 或 overwrite 的项）
+  const filesNeedConflictCheck = topLevelSingleFiles.filter(item => {
+    const itemStrategy = getItemStrategy(item.targetKey, conflictStrategy, itemStrategies)
+    // skip 和 overwrite 策略不需要预检测冲突
+    return itemStrategy !== 'skip' && itemStrategy !== 'overwrite'
+  })
+
+  if (filesNeedConflictCheck.length > 0) {
+    sendSSELog(res, isSSERequest, `[BatchCopy] 开始顶层单文件冲突检测: ${filesNeedConflictCheck.length} 个文件`)
+    topLevelConflicts = await detectConflictsWithListObjects(bucketName, targetBucket, filesNeedConflictCheck)
     sendSSELog(res, isSSERequest, `[BatchCopy] 顶层单文件冲突检测完成: ${topLevelConflicts.size} 个冲突`)
 
-    // 如果是 rename 策略，批量生成重命名映射
-    if (conflictStrategy === 'rename' && topLevelConflicts.size > 0) {
-      const conflictItems = items
-        .filter(item => !item.isFolder && !item.sourceKey.endsWith('/'))
-        .filter(item => topLevelConflicts.has(item.destinationKey))
-        .map(item => ({
-          originalKey: item.destinationKey,
-          isFolder: false,
-        }))
+    // 收集需要重命名的冲突项（根据逐项策略或全局策略）
+    const itemsNeedRename = items
+      .filter(item => !item.isFolder && !item.sourceKey.endsWith('/'))
+      .filter(item => topLevelConflicts.has(item.destinationKey))
+      .filter(item => {
+        const itemStrategy = getItemStrategy(item.destinationKey, conflictStrategy, itemStrategies)
+        return itemStrategy === 'rename'
+      })
+      .map(item => ({
+        originalKey: item.destinationKey,
+        isFolder: false,
+      }))
 
-      sendSSELog(res, isSSERequest, `[BatchCopy] 为 ${conflictItems.length} 个冲突项生成重命名映射`)
-      topLevelRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, conflictItems)
+    if (itemsNeedRename.length > 0) {
+      sendSSELog(res, isSSERequest, `[BatchCopy] 为 ${itemsNeedRename.length} 个冲突项生成重命名映射`)
+      topLevelRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, itemsNeedRename)
       sendSSELog(res, isSSERequest, `[BatchCopy] 重命名映射生成完成`)
     }
   }
@@ -1474,9 +1493,12 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
         }
       } else {
         // 单文件复制 - 使用预先批量检测的冲突结果
+        // 获取此项目的策略（逐项策略或全局策略）
+        const itemStrategy = getItemStrategy(destinationKey, conflictStrategy, itemStrategies)
+
         if (topLevelConflicts.has(destinationKey)) {
           // 处理冲突
-          if (conflictStrategy === 'rename') {
+          if (itemStrategy === 'rename') {
             // 使用重命名映射
             const newKey = topLevelRenameMap.get(destinationKey) || destinationKey
             const copyCommand = new CopyObjectCommand({
@@ -1494,7 +1516,7 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
               renamedTo: newKey,
               copied: 1,
             }
-          } else if (conflictStrategy === 'overwrite') {
+          } else if (itemStrategy === 'overwrite') {
             // 覆盖模式
             const copyCommand = new CopyObjectCommand({
               Bucket: targetBucket,
@@ -1605,10 +1627,18 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
   }
 
   const { bucketName } = req.params
-  const { items, destinationBucket, conflictStrategy = 'skip', maxConcurrency = 4 } = req.body
+  const { items, destinationBucket, conflictStrategy = 'skip', itemStrategies, maxConcurrency = 4 } = req.body
 
   // 兼容旧的 overwrite 参数
   const overwrite = conflictStrategy === 'overwrite'
+
+  // 获取单个项目的策略（支持逐项策略覆盖全局策略）
+  function getItemStrategy(destinationKey, globalStrategy, itemStrategiesMap) {
+    if (itemStrategiesMap && itemStrategiesMap[destinationKey]) {
+      return itemStrategiesMap[destinationKey]
+    }
+    return globalStrategy
+  }
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: '请提供要移动的对象列表' })
@@ -1643,23 +1673,34 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
   let topLevelConflicts = new Set()
   let topLevelRenameMap = new Map()
 
-  if (conflictStrategy !== 'overwrite' && topLevelSingleFiles.length > 0) {
-    sendSSELog(res, isSSERequest, `[BatchMove] 开始顶层单文件冲突检测: ${topLevelSingleFiles.length} 个文件`)
-    topLevelConflicts = await detectConflictsWithListObjects(bucketName, targetBucket, topLevelSingleFiles)
+  // 过滤出需要检测冲突的文件（排除逐项策略为 skip 或 overwrite 的项）
+  const filesNeedConflictCheck = topLevelSingleFiles.filter(item => {
+    const itemStrategy = getItemStrategy(item.targetKey, conflictStrategy, itemStrategies)
+    // skip 和 overwrite 策略不需要预检测冲突
+    return itemStrategy !== 'skip' && itemStrategy !== 'overwrite'
+  })
+
+  if (filesNeedConflictCheck.length > 0) {
+    sendSSELog(res, isSSERequest, `[BatchMove] 开始顶层单文件冲突检测: ${filesNeedConflictCheck.length} 个文件`)
+    topLevelConflicts = await detectConflictsWithListObjects(bucketName, targetBucket, filesNeedConflictCheck)
     sendSSELog(res, isSSERequest, `[BatchMove] 顶层单文件冲突检测完成: ${topLevelConflicts.size} 个冲突`)
 
-    // 如果是 rename 策略，批量生成重命名映射
-    if (conflictStrategy === 'rename' && topLevelConflicts.size > 0) {
-      const conflictItems = items
-        .filter(item => !item.isFolder && !item.sourceKey.endsWith('/'))
-        .filter(item => topLevelConflicts.has(item.destinationKey))
-        .map(item => ({
-          originalKey: item.destinationKey,
-          isFolder: false,
-        }))
+    // 收集需要重命名的冲突项（根据逐项策略或全局策略）
+    const itemsNeedRename = items
+      .filter(item => !item.isFolder && !item.sourceKey.endsWith('/'))
+      .filter(item => topLevelConflicts.has(item.destinationKey))
+      .filter(item => {
+        const itemStrategy = getItemStrategy(item.destinationKey, conflictStrategy, itemStrategies)
+        return itemStrategy === 'rename'
+      })
+      .map(item => ({
+        originalKey: item.destinationKey,
+        isFolder: false,
+      }))
 
-      sendSSELog(res, isSSERequest, `[BatchMove] 为 ${conflictItems.length} 个冲突项生成重命名映射`)
-      topLevelRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, conflictItems)
+    if (itemsNeedRename.length > 0) {
+      sendSSELog(res, isSSERequest, `[BatchMove] 为 ${itemsNeedRename.length} 个冲突项生成重命名映射`)
+      topLevelRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, itemsNeedRename)
       sendSSELog(res, isSSERequest, `[BatchMove] 重命名映射生成完成`)
     }
   }
@@ -1728,16 +1769,9 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
               })
               await r2Client.send(headCommand)
 
-              // 目标已存在
-              if (conflictStrategy === 'rename') {
-                // 生成新名称
-                const renameMap = await generateUniqueNamesBatch(bucketName, targetBucket, [{
-                  originalKey: destinationKey,
-                  isFolder: true,
-                }])
-                targetFolderKey = renameMap.get(destinationKey) || destinationKey
-                needsRename = true
-              } else if (conflictStrategy === 'skip') {
+              // 目标已存在，根据策略处理
+              if (conflictStrategy === 'skip') {
+                // 跳过冲突
                 stats.totalSkipped++
                 return {
                   sourceKey,
@@ -1745,6 +1779,14 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
                   status: 'skipped',
                   skipReason: '目标已存在',
                 }
+              } else if (conflictStrategy === 'rename') {
+                // 生成新名称
+                const renameMap = await generateUniqueNamesBatch(bucketName, targetBucket, [{
+                  originalKey: destinationKey,
+                  isFolder: true,
+                }])
+                targetFolderKey = renameMap.get(destinationKey) || destinationKey
+                needsRename = true
               }
               // overwrite 模式继续使用原目标路径
             } catch (headError) {
@@ -1898,21 +1940,16 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
         }
       } else {
         // 单文件移动 - 使用预先批量检测的冲突结果
+        // 获取此项目的策略（逐项策略或全局策略）
+        const itemStrategy = getItemStrategy(destinationKey, conflictStrategy, itemStrategies)
+
         let targetFileKey = destinationKey
         let needsRename = false
 
         if (topLevelConflicts.has(destinationKey)) {
-          if (conflictStrategy === 'rename') {
+          if (itemStrategy === 'rename') {
             targetFileKey = topLevelRenameMap.get(destinationKey) || destinationKey
             needsRename = true
-          } else if (conflictStrategy === 'skip') {
-            stats.totalSkipped++
-            return {
-              sourceKey,
-              destinationKey,
-              status: 'skipped',
-              skipReason: '目标已存在',
-            }
           }
           // overwrite 模式继续使用原目标路径
         }

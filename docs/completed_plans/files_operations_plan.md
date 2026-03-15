@@ -33,7 +33,7 @@
 - 批量冲突检测（ListObjects 优化方案）
 - 并行处理（可配置并发数 1-8）
 
-### Phase 3：冲突处理增强 ✅ v0.9.16
+### Phase 3：冲突处理增强 ✅ v0.9.16 → v1.1.0
 
 #### 冲突处理策略
 
@@ -42,15 +42,34 @@ type ConflictStrategy =
   | 'skip'        // 跳过冲突项
   | 'overwrite'   // 覆盖目标
   | 'rename'      // 自动重命名（保留两者）
-  | 'ask'         // 逐个询问
+  | 'ask'         // 逐个询问（默认）
 ```
 
 #### 冲突对话框
 
 参考 Windows 10/11 设计，支持：
 - 显示源/目标文件详细信息（大小、修改时间）
-- 三种处理选项：跳过 / 覆盖 / 保留两者
-- "应用到所有冲突"复选框
+- 每个冲突项独立选择处理策略（跳过 / 覆盖 / 保留两者）
+- "全部设为"快捷按钮（全部跳过 / 全部保留 / 全部覆盖）
+- 策略统计显示（X 项跳过、X 项保留、X 项覆盖）
+- 根据选择的策略显示不同背景色高亮
+
+#### 逐项策略支持 ✅ v1.1.0
+
+后端支持为每个冲突文件指定独立的处理策略：
+
+```typescript
+// 逐项策略映射
+const itemStrategies: Record<string, 'skip' | 'overwrite' | 'rename'> = {
+  'folder/file1.txt': 'overwrite',
+  'folder/file2.txt': 'rename',
+  'folder/file3.txt': 'skip',
+}
+```
+
+**实现细节：**
+- `getItemStrategy(key, globalStrategy, itemStrategiesMap)` - 逐项策略优先于全局策略
+- 冲突检测前过滤：只检测策略为 `rename` 或 `ask` 的文件（减少不必要的 API 调用）
 
 #### 自动重命名
 
@@ -72,6 +91,21 @@ type ConflictStrategy =
 - 统计标签：成功 / 重命名 / 跳过 / 失败
 - `OperationResultDetails` 组件展示详细列表
 - 支持 `partial` 状态（部分成功）
+
+### Phase 4：上传冲突检测 ✅ v1.1.0
+
+上传文件时自动检测同名文件冲突：
+
+- 上传前调用 `/detect-conflicts` API 检测目标位置同名文件
+- 有冲突时弹出 ConflictDialog 让用户选择处理方式
+- 支持跳过、重命名（自动添加 `(1)` 后缀）、覆盖
+
+```
+上传: file.txt (目标已存在)
+→ 跳过: 不上传
+→ 保留两者: 上传为 file (1).txt
+→ 覆盖: 直接覆盖原文件
+```
 
 ---
 
