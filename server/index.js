@@ -153,7 +153,7 @@ app.delete('/api/buckets/:bucketName', async (req, res) => {
  * @returns {Promise<Set<string>>} 冲突的 targetKey 集合
  */
 async function detectConflictsWithListObjects(bucket, targetBucket, items) {
-  if (items.length === 0) return new Set()
+  if (items.length === 0) return { conflicts: new Set(), existingKeys: new Set() }
 
   // 1. 收集所有需要检查的目标目录（按前缀分组）
   const targetPrefixes = new Set()
@@ -196,7 +196,27 @@ async function detectConflictsWithListObjects(bucket, targetBucket, items) {
     }
   }
 
-  return conflicts
+  return { conflicts, existingKeys }
+}
+
+/**
+ * 将 existingKeys Set 转换为按目录前缀分组的 Map
+ * 用于 generateUniqueNamesBatch 复用已获取的文件列表数据
+ *
+ * @param {Set<string>} existingKeys - 扁平的 key 集合
+ * @returns {Map<string, Set<string>>} 按目录前缀分组的 Map
+ */
+function buildExistingKeysByPrefix(existingKeys) {
+  const result = new Map()
+  for (const key of existingKeys) {
+    const lastSlash = key.lastIndexOf('/')
+    const prefix = lastSlash >= 0 ? key.substring(0, lastSlash + 1) : ''
+    if (!result.has(prefix)) {
+      result.set(prefix, new Set())
+    }
+    result.get(prefix).add(key)
+  }
+  return result
 }
 
 /**
@@ -244,9 +264,10 @@ function findAvailableName(originalKey, existingKeys, isFolder) {
  * @param {string} bucket - 目标桶
  * @param {string} targetBucket - 目标桶（可能跨桶）
  * @param {Array<{originalKey: string, isFolder: boolean}>} items - 需要重命名的项列表
+ * @param {Map<string, Set<string>>} [existingKeysByPrefix] - 可选的按目录分组的已存在 key 缓存
  * @returns {Promise<Map<string, string>>} originalKey -> newKey 映射表
  */
-async function generateUniqueNamesBatch(bucket, targetBucket, items) {
+async function generateUniqueNamesBatch(bucket, targetBucket, items, existingKeysByPrefix = null) {
   const results = new Map()
   const actualTargetBucket = targetBucket || bucket
 
@@ -263,23 +284,30 @@ async function generateUniqueNamesBatch(bucket, targetBucket, items) {
 
   // 批量获取每个目录的现有文件
   for (const [dir, dirItems] of prefixGroups) {
-    // 使用 ListObjects 获取目录下所有文件
-    const existingKeys = new Set()
-    let continuationToken = undefined
+    let existingKeys
 
-    do {
-      const listCommand = new ListObjectsV2Command({
-        Bucket: actualTargetBucket,
-        Prefix: dir,
-        ContinuationToken: continuationToken,
-        MaxKeys: 1000,
-      })
-      const response = await r2Client.send(listCommand)
-      if (response.Contents) {
-        response.Contents.forEach(obj => existingKeys.add(obj.Key))
-      }
-      continuationToken = response.NextContinuationToken
-    } while (continuationToken)
+    // 优先使用缓存的 existingKeys（关键优化点）
+    if (existingKeysByPrefix && existingKeysByPrefix.has(dir)) {
+      existingKeys = new Set(existingKeysByPrefix.get(dir))
+    } else {
+      // 回退到 API 调用
+      existingKeys = new Set()
+      let continuationToken = undefined
+
+      do {
+        const listCommand = new ListObjectsV2Command({
+          Bucket: actualTargetBucket,
+          Prefix: dir,
+          ContinuationToken: continuationToken,
+          MaxKeys: 1000,
+        })
+        const response = await r2Client.send(listCommand)
+        if (response.Contents) {
+          response.Contents.forEach(obj => existingKeys.add(obj.Key))
+        }
+        continuationToken = response.NextContinuationToken
+      } while (continuationToken)
+    }
 
     // 为每个冲突项生成唯一名称
     for (const item of dirItems) {
@@ -720,7 +748,8 @@ app.post('/api/buckets/:bucketName/objects/:key(*)/copy', async (req, res) => {
       // 批量冲突检测（ListObjects 方案）
       let conflictKeys = new Set()
       if (!overwrite) {
-        conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+        const conflictResult = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+        conflictKeys = conflictResult.conflicts
         console.log(`[Copy] 冲突检测完成: ${conflictKeys.size} 个冲突`)
       }
 
@@ -884,7 +913,8 @@ app.post('/api/buckets/:bucketName/objects/:key(*)/move', async (req, res) => {
       // 批量冲突检测（ListObjects 方案）
       let conflictKeys = new Set()
       if (!overwrite) {
-        conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+        const conflictResult = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+        conflictKeys = conflictResult.conflicts
         console.log(`[Move] 冲突检测完成: ${conflictKeys.size} 个冲突`)
       }
 
@@ -1014,7 +1044,7 @@ app.post('/api/buckets/:bucketName/objects/detect-conflicts', async (req, res) =
     }))
 
     // 批量检测冲突
-    const conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, checkItems)
+    const { conflicts: conflictKeys } = await detectConflictsWithListObjects(bucketName, targetBucket, checkItems)
 
     // 获取冲突项的详细信息
     const conflicts = []
@@ -1273,6 +1303,7 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
 
   let topLevelConflicts = new Set()
   let topLevelRenameMap = new Map()  // 冲突项的重命名映射
+  let topLevelExistingKeys = new Map()  // 缓存的已存在文件列表（按前缀分组）
 
   // 过滤出需要检测冲突的文件（排除逐项策略为 skip 或 overwrite 的项）
   const filesNeedConflictCheck = topLevelSingleFiles.filter(item => {
@@ -1283,7 +1314,9 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
 
   if (filesNeedConflictCheck.length > 0) {
     sendSSELog(res, isSSERequest, `[BatchCopy] 开始顶层单文件冲突检测: ${filesNeedConflictCheck.length} 个文件`)
-    topLevelConflicts = await detectConflictsWithListObjects(bucketName, targetBucket, filesNeedConflictCheck)
+    const conflictResult = await detectConflictsWithListObjects(bucketName, targetBucket, filesNeedConflictCheck)
+    topLevelConflicts = conflictResult.conflicts
+    topLevelExistingKeys = buildExistingKeysByPrefix(conflictResult.existingKeys)
     sendSSELog(res, isSSERequest, `[BatchCopy] 顶层单文件冲突检测完成: ${topLevelConflicts.size} 个冲突`)
 
     // 收集需要重命名的冲突项（根据逐项策略或全局策略）
@@ -1301,7 +1334,7 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
 
     if (itemsNeedRename.length > 0) {
       sendSSELog(res, isSSERequest, `[BatchCopy] 为 ${itemsNeedRename.length} 个冲突项生成重命名映射`)
-      topLevelRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, itemsNeedRename)
+      topLevelRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, itemsNeedRename, topLevelExistingKeys)
       sendSSELog(res, isSSERequest, `[BatchCopy] 重命名映射生成完成`)
     }
   }
@@ -1407,8 +1440,11 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
 
         let conflictKeys = new Set()
         let subRenameMap = new Map()
+        let subExistingKeys = new Map()
         if (conflictStrategy !== 'overwrite') {
-          conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+          const conflictResult = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+          conflictKeys = conflictResult.conflicts
+          subExistingKeys = buildExistingKeysByPrefix(conflictResult.existingKeys)
 
           // 如果是 rename 策略，生成重命名映射
           if (conflictStrategy === 'rename' && conflictKeys.size > 0) {
@@ -1418,7 +1454,7 @@ app.post('/api/buckets/:bucketName/objects/batch-copy', async (req, res) => {
                 originalKey: item.targetKey,
                 isFolder: false,
               }))
-            subRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, conflictItems)
+            subRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, conflictItems, subExistingKeys)
           }
         }
 
@@ -1672,6 +1708,7 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
 
   let topLevelConflicts = new Set()
   let topLevelRenameMap = new Map()
+  let topLevelExistingKeys = new Map()  // 缓存的已存在文件列表（按前缀分组）
 
   // 过滤出需要检测冲突的文件（排除逐项策略为 skip 或 overwrite 的项）
   const filesNeedConflictCheck = topLevelSingleFiles.filter(item => {
@@ -1682,7 +1719,9 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
 
   if (filesNeedConflictCheck.length > 0) {
     sendSSELog(res, isSSERequest, `[BatchMove] 开始顶层单文件冲突检测: ${filesNeedConflictCheck.length} 个文件`)
-    topLevelConflicts = await detectConflictsWithListObjects(bucketName, targetBucket, filesNeedConflictCheck)
+    const conflictResult = await detectConflictsWithListObjects(bucketName, targetBucket, filesNeedConflictCheck)
+    topLevelConflicts = conflictResult.conflicts
+    topLevelExistingKeys = buildExistingKeysByPrefix(conflictResult.existingKeys)
     sendSSELog(res, isSSERequest, `[BatchMove] 顶层单文件冲突检测完成: ${topLevelConflicts.size} 个冲突`)
 
     // 收集需要重命名的冲突项（根据逐项策略或全局策略）
@@ -1700,7 +1739,7 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
 
     if (itemsNeedRename.length > 0) {
       sendSSELog(res, isSSERequest, `[BatchMove] 为 ${itemsNeedRename.length} 个冲突项生成重命名映射`)
-      topLevelRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, itemsNeedRename)
+      topLevelRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, itemsNeedRename, topLevelExistingKeys)
       sendSSELog(res, isSSERequest, `[BatchMove] 重命名映射生成完成`)
     }
   }
@@ -1838,8 +1877,11 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
 
         let conflictKeys = new Set()
         let subRenameMap = new Map()
+        let subExistingKeys = new Map()
         if (conflictStrategy !== 'overwrite') {
-          conflictKeys = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+          const conflictResult = await detectConflictsWithListObjects(bucketName, targetBucket, subItems)
+          conflictKeys = conflictResult.conflicts
+          subExistingKeys = buildExistingKeysByPrefix(conflictResult.existingKeys)
 
           // 如果是 rename 策略，生成重命名映射
           if (conflictStrategy === 'rename' && conflictKeys.size > 0) {
@@ -1849,7 +1891,7 @@ app.post('/api/buckets/:bucketName/objects/batch-move', async (req, res) => {
                 originalKey: item.targetKey,
                 isFolder: false,
               }))
-            subRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, conflictItems)
+            subRenameMap = await generateUniqueNamesBatch(bucketName, targetBucket, conflictItems, subExistingKeys)
           }
         }
 

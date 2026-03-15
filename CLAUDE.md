@@ -149,7 +149,20 @@ cloudflare-r2-manager/
 └── package.json                      # 前端依赖配置
 ```
 
+另注: 打包文件位于 `src-tauri/target/release/bundle` 下的 msi 和 nsis 文件夹中。
+
 ## 重要功能
+
+### 版本号更新
+
+使用更新脚本 `bump-version.js` 以及更新命令。
+
+```bash
+node bump-version.js patch   # 0.9.10 → 0.9.11
+node bump-version.js minor   # 0.9.10 → 0.10.0
+node bump-version.js major   # 0.9.10 → 1.0.0
+node bump-version.js 1.2.3   # 直接设置为 1.2.3
+```
 
 ### 配置存储
 
@@ -223,7 +236,6 @@ cloudflare-r2-manager/
 
 ### Phase 5: 待修复
 - [ ] 批量删除多层级时出错（需进一步验证）
-- [ ] "全部重命名"性能远差于"全部覆盖"
 
 ---
 

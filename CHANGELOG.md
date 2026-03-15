@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.1] - 2026-03-15 | 批量操作性能优化
+
+### Improved
+- **"全部重命名"策略性能优化** - 减少约 50% 的 ListObjectsV2 API 调用
+  - `server/index.js` - `detectConflictsWithListObjects()` 现在返回 `{ conflicts, existingKeys }`，复用已获取的文件列表
+  - `server/index.js` - 新增 `buildExistingKeysByPrefix()` 辅助函数，按目录前缀分组缓存数据
+  - `server/index.js` - `generateUniqueNamesBatch()` 新增可选参数 `existingKeysByPrefix`，优先使用缓存避免重复 API 调用
+  - 批量复制/移动的顶层和子项处理均受益于此优化
+
+---
+
 ## [1.1.0] - 2026-03-15 | 逐项冲突策略支持
 
 ### Added
